@@ -1,0 +1,17 @@
+# Logs (keep directory structure via .gitkeep)
+logs/*
+!logs/.gitkeep
+
+# Lock files
+*.lock
+
+# Backup-pending flag
+logs/backup-pending
+
+# Windows / OneDrive
+Thumbs.db
+desktop.ini
+~$*
+
+# Claude
+.claude/
