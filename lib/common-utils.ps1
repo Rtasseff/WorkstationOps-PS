@@ -1,4 +1,4 @@
-# common-utils.ps1 — Shared utilities for WorkstationOps
+# common-utils.ps1 -- Shared utilities for WorkstationOps
 # Dot-source this file: . "$PSScriptRoot\..\lib\common-utils.ps1"
 
 $Script:OpsRoot = Split-Path -Parent $PSScriptRoot
@@ -6,7 +6,7 @@ if (-not $Script:OpsRoot) {
     $Script:OpsRoot = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 }
 
-# ── Logging ──────────────────────────────────────────────────────────────────
+# -- Logging ------------------------------------------------------------------
 
 $Script:LogFile = $null
 
@@ -46,7 +46,7 @@ function Write-Log {
     }
 }
 
-# ── Lock File ────────────────────────────────────────────────────────────────
+# -- Lock File ----------------------------------------------------------------
 
 function Get-Lock {
     param(
@@ -87,7 +87,7 @@ function Release-Lock {
     }
 }
 
-# ── Log Rotation ─────────────────────────────────────────────────────────────
+# -- Log Rotation -------------------------------------------------------------
 
 function Invoke-LogRotation {
     param(
@@ -104,7 +104,7 @@ function Invoke-LogRotation {
     }
 }
 
-# ── Notification ─────────────────────────────────────────────────────────────
+# -- Notification -------------------------------------------------------------
 
 function Send-Notification {
     param(
@@ -141,7 +141,7 @@ function Send-Notification {
     }
 }
 
-# ── Helpers ──────────────────────────────────────────────────────────────────
+# -- Helpers ------------------------------------------------------------------
 
 function Get-HumanDuration {
     param(

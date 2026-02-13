@@ -1,4 +1,4 @@
-# ops.ps1 — WorkstationOps CLI for Windows
+# ops.ps1 -- WorkstationOps CLI for Windows
 # Usage: .\ops <command> [options]
 
 param(
@@ -58,7 +58,7 @@ function Invoke-Status {
     }
 
     Write-Host ""
-    Write-Host "  WorkstationOps — WSL Backup Status" -ForegroundColor Cyan
+    Write-Host "  WorkstationOps -- WSL Backup Status" -ForegroundColor Cyan
     Write-Host "  ====================================" -ForegroundColor Cyan
     Write-Host ""
 
@@ -76,11 +76,12 @@ function Invoke-Status {
         $age = (Get-Date) - $latest.LastWriteTime
         $ageStr = Get-HumanDuration $age
         $sizeStr = Get-HumanSize $latest.Length
+        $backupInfo = $latest.Name + " (" + $sizeStr + ", " + $ageStr + " ago)"
         Write-Host "  Last backup:          " -NoNewline
         if ($age.TotalDays -gt 45) {
-            Write-Host "$($latest.Name) ($sizeStr, $ageStr ago)" -ForegroundColor Yellow
+            Write-Host $backupInfo -ForegroundColor Yellow
         } else {
-            Write-Host "$($latest.Name) ($sizeStr, $ageStr ago)" -ForegroundColor Green
+            Write-Host $backupInfo -ForegroundColor Green
         }
     } else {
         Write-Host "  Last backup:          " -NoNewline
@@ -90,7 +91,7 @@ function Invoke-Status {
     # Pending flag
     if ($pending) {
         Write-Host "  Backup status:        " -NoNewline
-        Write-Host "OVERDUE — run '.\ops run backup'" -ForegroundColor Yellow
+        Write-Host "OVERDUE -- run '.\ops run backup'" -ForegroundColor Yellow
     } else {
         Write-Host "  Backup status:        " -NoNewline
         Write-Host "OK" -ForegroundColor Green
@@ -107,7 +108,7 @@ function Invoke-Status {
         }
     } else {
         Write-Host "  Scheduled task:       " -NoNewline
-        Write-Host "Not configured — run '.\ops schedule'" -ForegroundColor Yellow
+        Write-Host "Not configured -- run '.\ops schedule'" -ForegroundColor Yellow
     }
 
     # Existing exports
@@ -174,15 +175,13 @@ function Invoke-Unschedule {
 
 function Invoke-RunBackup {
     $backupScript = Join-Path $OpsRoot "backups\wsl-backup.ps1"
-    $params = @()
+    $scriptArgs = @{}
 
-    if ($ExtraArgs -contains "--scheduled") { $params += "-Scheduled" }
-    if ($ExtraArgs -contains "--force")     { $params += "-Force" }
-    if ($ExtraArgs -contains "--dry-run")   { $params += "-DryRun" }
+    if ($ExtraArgs -contains "--scheduled") { $scriptArgs['Scheduled'] = $true }
+    if ($ExtraArgs -contains "--force")     { $scriptArgs['Force'] = $true }
+    if ($ExtraArgs -contains "--dry-run")   { $scriptArgs['DryRun'] = $true }
 
-    $paramStr = $params -join " "
-    $cmd = "& `"$backupScript`" $paramStr"
-    Invoke-Expression $cmd
+    & $backupScript @scriptArgs
 }
 
 function Invoke-Logs {
@@ -208,7 +207,7 @@ function Invoke-Logs {
 
 function Invoke-Verify {
     Write-Host ""
-    Write-Host "  WorkstationOps — Pre-flight Checks" -ForegroundColor Cyan
+    Write-Host "  WorkstationOps -- Pre-flight Checks" -ForegroundColor Cyan
     Write-Host "  ====================================" -ForegroundColor Cyan
     Write-Host ""
 
@@ -285,7 +284,7 @@ function Invoke-Verify {
 function Invoke-Help {
     Write-Host @"
 
-  WorkstationOps — Windows WSL Backup CLI
+  WorkstationOps -- Windows WSL Backup CLI
   ========================================
 
   Usage: .\ops <command> [options]

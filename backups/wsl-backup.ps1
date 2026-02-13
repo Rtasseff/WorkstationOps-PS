@@ -1,4 +1,4 @@
-# wsl-backup.ps1 — WSL distro export engine
+# wsl-backup.ps1 -- WSL distro export engine
 # Usage: .\backups\wsl-backup.ps1 [-Scheduled] [-Force] [-DryRun]
 
 param(
@@ -9,7 +9,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# ── Bootstrap ────────────────────────────────────────────────────────────────
+# -- Bootstrap ----------------------------------------------------------------
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $OpsRoot   = Split-Path -Parent $ScriptDir
@@ -25,7 +25,7 @@ $pendingFlag = Join-Path $OpsRoot "logs\backup-pending"
 Write-Log -Level INFO -Message "=== WSL Backup Started ==="
 Write-Log -Level INFO -Message "Mode: $(if ($Scheduled) {'Scheduled'} elseif ($DryRun) {'Dry Run'} elseif ($Force) {'Force'} else {'Interactive'})"
 
-# ── Pre-flight checks ───────────────────────────────────────────────────────
+# -- Pre-flight checks -------------------------------------------------------
 
 # Check wsl.exe exists
 $wslPath = Get-Command wsl.exe -ErrorAction SilentlyContinue
@@ -55,7 +55,7 @@ if (-not $DryRun) {
     Ensure-Directory $BACKUP_DEST
 }
 
-# ── Lock ─────────────────────────────────────────────────────────────────────
+# -- Lock ---------------------------------------------------------------------
 
 if (-not $DryRun) {
     $gotLock = Get-Lock -Name "wsl-backup"
@@ -67,7 +67,7 @@ if (-not $DryRun) {
 
 try {
 
-# ── Check if WSL is running ─────────────────────────────────────────────────
+# -- Check if WSL is running -------------------------------------------------
 
 $runningRaw = wsl.exe -l --running 2>&1
 $runningText = ($runningRaw | ForEach-Object { $_.Trim("`0", " ", "`r", "`n") }) -join "`n"
@@ -122,7 +122,7 @@ if ($distroRunning) {
     Write-Log -Level INFO -Message "WSL distro '$DISTRO_NAME' is not running. Proceeding with export."
 }
 
-# ── Disk space check ────────────────────────────────────────────────────────
+# -- Disk space check --------------------------------------------------------
 
 $driveLetter = $BACKUP_DRIVE.TrimEnd('\')
 $disk = Get-PSDrive -Name $driveLetter.TrimEnd(':') -ErrorAction SilentlyContinue
@@ -130,13 +130,13 @@ if ($disk -and $disk.Free) {
     $freeGB = [math]::Round($disk.Free / 1GB, 1)
     Write-Log -Level INFO -Message "Free space on ${driveLetter}: ${freeGB} GB"
     if ($disk.Free -lt 50GB) {
-        Write-Log -Level WARN -Message "Less than 50 GB free on $driveLetter — export may fail if distro is large."
+        Write-Log -Level WARN -Message "Less than 50 GB free on $driveLetter -- export may fail if distro is large."
     }
 } else {
     Write-Log -Level WARN -Message "Could not determine free space on $driveLetter"
 }
 
-# ── Export ───────────────────────────────────────────────────────────────────
+# -- Export -------------------------------------------------------------------
 
 $date = Get-Date -Format "yyyy-MM-dd"
 $exportFile = Join-Path $BACKUP_DEST "wsl-ubuntu-$date.tar"
@@ -164,7 +164,7 @@ try {
 }
 $exportDuration = (Get-Date) - $exportStart
 
-# ── Verify export ────────────────────────────────────────────────────────────
+# -- Verify export ------------------------------------------------------------
 
 if (-not (Test-Path $exportFile)) {
     Write-Log -Level ERROR -Message "Export file not found at: $exportFile"
@@ -180,7 +180,7 @@ if ($fileSize -lt 1GB) {
     Write-Log -Level OK -Message "Export verified: $humanSize"
 }
 
-# ── Cleanup old exports ─────────────────────────────────────────────────────
+# -- Cleanup old exports -----------------------------------------------------
 
 $exports = Get-ChildItem -Path $BACKUP_DEST -Filter "wsl-ubuntu-*.tar" | Sort-Object Name -Descending
 if ($exports.Count -gt $BACKUP_RETENTION) {
@@ -191,18 +191,18 @@ if ($exports.Count -gt $BACKUP_RETENTION) {
     }
 }
 
-# ── Remove pending flag ─────────────────────────────────────────────────────
+# -- Remove pending flag -----------------------------------------------------
 
 if (Test-Path $pendingFlag) {
     Remove-Item $pendingFlag -Force
     Write-Log -Level INFO -Message "Cleared backup-pending flag."
 }
 
-# ── Log rotation ────────────────────────────────────────────────────────────
+# -- Log rotation ------------------------------------------------------------
 
 Invoke-LogRotation -RetentionDays $LOG_RETENTION_DAYS
 
-# ── Summary ──────────────────────────────────────────────────────────────────
+# -- Summary ------------------------------------------------------------------
 
 $totalDuration = (Get-Date) - $startTime
 Write-Log -Level OK -Message "=== WSL Backup Complete ==="
@@ -211,23 +211,23 @@ Write-Log -Level OK -Message "Size: $humanSize"
 Write-Log -Level OK -Message "Export time: $(Get-HumanDuration $exportDuration)"
 Write-Log -Level OK -Message "Total time: $(Get-HumanDuration $totalDuration)"
 
-# ── Restart WSL ──────────────────────────────────────────────────────────────
+# -- Restart WSL --------------------------------------------------------------
 
 if ($Scheduled) {
     Write-Log -Level INFO -Message "Auto-restarting WSL distro '$DISTRO_NAME'..."
-    wsl.exe -d $DISTRO_NAME -- echo "WSL restarted by WorkstationOps backup" > $null 2>&1
+    wsl.exe -d $DISTRO_NAME -- echo "WSL restarted by WorkstationOps backup" *>$null
     Write-Log -Level OK -Message "WSL distro '$DISTRO_NAME' restarted."
 } else {
     $restart = Read-Host "Restart WSL '$DISTRO_NAME' now? [Y/n]"
     if (-not $restart -or $restart -match '^[Yy]') {
         Write-Log -Level INFO -Message "Restarting WSL distro '$DISTRO_NAME'..."
-        wsl.exe -d $DISTRO_NAME -- echo "WSL restarted by WorkstationOps backup" > $null 2>&1
+        wsl.exe -d $DISTRO_NAME -- echo "WSL restarted by WorkstationOps backup" *>$null
         Write-Log -Level OK -Message "WSL distro '$DISTRO_NAME' restarted."
     }
 }
 
 } finally {
-    # ── Release lock ─────────────────────────────────────────────────────────
+    # -- Release lock ---------------------------------------------------------
     if (-not $DryRun) {
         Release-Lock -Name "wsl-backup"
     }
