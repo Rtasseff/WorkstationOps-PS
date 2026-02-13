@@ -131,44 +131,54 @@ function Invoke-Status {
 function Invoke-Schedule {
     $opsScript = Join-Path $OpsRoot "ops.ps1"
 
-    # Build the action
-    $action = New-ScheduledTaskAction `
-        -Execute "powershell.exe" `
-        -Argument "-ExecutionPolicy Bypass -WindowStyle Hidden -File `"$opsScript`" run backup --scheduled" `
-        -WorkingDirectory $OpsRoot
-
-    # Trigger: 1st of each month at configured time
-    $trigger = New-ScheduledTaskTrigger -Monthly -DaysOfMonth 1 -At $TASK_TIME
-
-    # Settings
-    $settings = New-ScheduledTaskSettingsSet `
-        -AllowStartIfOnBatteries `
-        -DontStopIfGoingOnBatteries `
-        -StartWhenAvailable `
-        -ExecutionTimeLimit (New-TimeSpan -Days 3)
+    # Use Task Scheduler COM API (handles paths with spaces cleanly)
+    $svc = New-Object -ComObject Schedule.Service
+    $svc.Connect()
+    $folder = $svc.GetFolder('\')
 
     # Check if task already exists
-    $existing = Get-ScheduledTask -TaskName $TASK_NAME -ErrorAction SilentlyContinue
+    $verb = "Created"
+    try { $folder.GetTask($TASK_NAME) | Out-Null; $verb = "Updated" } catch {}
 
-    if ($existing) {
-        Set-ScheduledTask -TaskName $TASK_NAME -Action $action -Trigger $trigger -Settings $settings | Out-Null
-        Write-Host "Updated scheduled task '$TASK_NAME'." -ForegroundColor Green
-    } else {
-        Register-ScheduledTask -TaskName $TASK_NAME -Action $action -Trigger $trigger -Settings $settings `
-            -Description "Monthly WSL distro export to network drive" | Out-Null
-        Write-Host "Created scheduled task '$TASK_NAME'." -ForegroundColor Green
-    }
+    $taskDef = $svc.NewTask(0)
+    $taskDef.RegistrationInfo.Description = "Monthly WSL distro export to network drive"
+    $taskDef.Settings.Enabled = $true
+    $taskDef.Settings.AllowDemandStart = $true
+    $taskDef.Settings.StartWhenAvailable = $true
+    $taskDef.Settings.DisallowStartIfOnBatteries = $false
+    $taskDef.Settings.StopIfGoingOnBatteries = $false
+    $taskDef.Settings.ExecutionTimeLimit = "P3D"
 
+    # Monthly trigger: 1st of each month
+    $trigger = $taskDef.Triggers.Create(4)  # 4 = TASK_TRIGGER_MONTHLY
+    $trigger.DaysOfMonth = 1
+    $trigger.MonthsOfYear = 4095  # all 12 months (bitmask: 0xFFF)
+    $trigger.StartBoundary = (Get-Date -Hour ([int]$TASK_TIME.Split(':')[0]) -Minute ([int]$TASK_TIME.Split(':')[1]) -Second 0).ToString("yyyy-MM-ddTHH:mm:ss")
+
+    # Action: run ops.ps1 with backup --scheduled
+    $action = $taskDef.Actions.Create(0)  # 0 = TASK_ACTION_EXEC
+    $action.Path = "powershell.exe"
+    $action.Arguments = "-ExecutionPolicy Bypass -WindowStyle Hidden -File `"$opsScript`" run backup --scheduled"
+    $action.WorkingDirectory = $OpsRoot
+
+    # Register (6 = create or update, 3 = interactive logon only)
+    $folder.RegisterTaskDefinition($TASK_NAME, $taskDef, 6, $null, $null, 3) | Out-Null
+
+    Write-Host "$verb scheduled task '$TASK_NAME'." -ForegroundColor Green
     Write-Host "  Schedule: 1st of each month at $TASK_TIME"
     Write-Host "  Verify in Task Scheduler (taskschd.msc) under '$TASK_NAME'"
 }
 
 function Invoke-Unschedule {
-    $existing = Get-ScheduledTask -TaskName $TASK_NAME -ErrorAction SilentlyContinue
-    if ($existing) {
-        Unregister-ScheduledTask -TaskName $TASK_NAME -Confirm:$false
+    $svc = New-Object -ComObject Schedule.Service
+    $svc.Connect()
+    $folder = $svc.GetFolder('\')
+
+    try {
+        $folder.GetTask($TASK_NAME) | Out-Null
+        $folder.DeleteTask($TASK_NAME, 0)
         Write-Host "Removed scheduled task '$TASK_NAME'." -ForegroundColor Green
-    } else {
+    } catch {
         Write-Host "Scheduled task '$TASK_NAME' does not exist." -ForegroundColor Yellow
     }
 }
