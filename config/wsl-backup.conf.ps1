@@ -11,7 +11,7 @@ $BACKUP_DEST        = "K:\rtasseff\wsl-gold"
 $BACKUP_DRIVE       = "K:\"
 
 # Number of most recent exports to keep (older ones are deleted)
-$BACKUP_RETENTION   = 2
+$BACKUP_RETENTION   = 1
 
 # Delete log files older than this many days
 $LOG_RETENTION_DAYS = 90
