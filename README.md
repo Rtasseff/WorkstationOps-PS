@@ -9,9 +9,10 @@ aggregate.
 
 ## Operations
 
-| Name | Purpose |
-|------|---------|
-| `wsl-backup` | Monthly full export of the Ubuntu WSL distro to `K:\rtasseff\wsl-gold` |
+| Name | Cadence | Purpose |
+|------|---------|---------|
+| `wsl-backup` | Monthly (1st @ 14:00) | Full export of the Ubuntu WSL distro to `K:\rtasseff\wsl-gold` |
+| `vps-backup` | Daily @ 03:00 | Pull latest ReDIB DB + files backups from the VPS to `X:\backup\ReDIB-Portal` |
 
 ### wsl-backup
 
@@ -22,6 +23,14 @@ aggregate.
 - Interactive `.\ops run wsl-backup` prompts before terminating WSL, exports, then offers to restart
 
 This gives monthly nudges without ever killing WSL unexpectedly.
+
+### vps-backup
+
+- **Task Scheduler** fires every day at 3:00 AM
+- Uses Windows-native OpenSSH (`C:\Windows\System32\OpenSSH\ssh.exe` + `scp.exe`) via a `Host vps` alias in `%USERPROFILE%\.ssh\config`
+- For each configured *kind* (`db`, `files`), finds the latest `redib_<kind>_YYYYMMDD_HHMMSS.<ext>` on the VPS, pulls it, and prunes older local copies (IT manages historical retention on the drive)
+- If the remote latest is already present locally (same name + size), logs "already have it" and skips the copy
+- If the VPS is unreachable or `X:` isn't mounted, sets a pending flag surfaced by `.\ops status`
 
 ## Quick start
 
@@ -79,7 +88,7 @@ wsl -d Ubuntu -- whoami
 
 ## Configuration
 
-Edit `config\wsl-backup.conf.ps1`:
+### `config\wsl-backup.conf.ps1`
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -89,15 +98,50 @@ Edit `config\wsl-backup.conf.ps1`:
 | `$BACKUP_RETENTION` | `1` | Keep N most recent exports |
 | `$LOG_RETENTION_DAYS` | `90` | Delete logs older than this |
 | `$TASK_NAME` | `WorkstationOps-WSL-Backup` | Task Scheduler job name |
-| `$TASK_SCHEDULE` | `Monthly` | Trigger type (only `Monthly` supported today) |
+| `$TASK_SCHEDULE` | `Monthly` | Trigger type |
 | `$TASK_TIME` | `14:00` | Scheduled time (24h format) |
+
+### `config\vps-backup.conf.ps1`
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `$VPS_HOST` | `vps` | Host alias in `%USERPROFILE%\.ssh\config` |
+| `$VPS_REMOTE_DIR` | `/home/deploy/backups/redib` | Remote directory holding the backup files |
+| `$VPS_BACKUP_KINDS` | db + files | Array of `@{Kind; Ext; Label}` entries to pull |
+| `$BACKUP_DEST` | `X:\backup\ReDIB-Portal` | Local destination |
+| `$BACKUP_DRIVE` | `X:\` | Drive to check for availability |
+| `$LOG_RETENTION_DAYS` | `90` | Delete logs older than this |
+| `$TASK_NAME` | `WorkstationOps-vps-backup` | Task Scheduler job name |
+
+Retention is always "keep 1 per kind" for vps-backup — IT manages historical retention on the destination drive, so local pruning avoids duplicating that.
+
+### SSH setup for vps-backup
+
+The op uses Windows-native OpenSSH with a `Host vps` block in `%USERPROFILE%\.ssh\config`:
+
+```
+Host vps
+    HostName <ip-or-dns>
+    User <remote-user>
+    IdentityFile ~/.ssh/id_ed25519_vps
+    IdentitiesOnly yes
+    StrictHostKeyChecking yes
+```
+
+The private key must have its NTFS ACL locked down (owner-only, no inheritance), or Windows OpenSSH will refuse to use it:
+
+```powershell
+icacls "$env:USERPROFILE\.ssh\id_ed25519_vps" /inheritance:r /grant:r "${env:USERNAME}:(F)"
+```
+
+The host's public key must be in `%USERPROFILE%\.ssh\known_hosts` (seed it once via `ssh-keyscan -t ed25519 <ip> >> known_hosts` after verifying the fingerprint).
 
 ## Notes
 
-- **Export size:** Typically 8-25 GB depending on distro contents
-- **Export duration:** 10-30+ minutes depending on distro size and network speed
+- **wsl-backup export size:** Typically 8-25 GB depending on distro contents; 10-30+ minutes per run
 - **WSL termination:** `wsl --export` requires the distro to be stopped. The interactive mode always prompts before terminating. The scheduled mode never terminates — it defers and notifies instead.
-- **Logs:** Written to `logs\wsl-backup-YYYY-MM-DD.log`, auto-rotated after 90 days
+- **vps-backup pull size:** Typically tiny (< 1 MB); a few seconds per run
+- **Logs:** Written to `logs\<op>-YYYY-MM-DD.log`, auto-rotated after 90 days per each op's `$LOG_RETENTION_DAYS`
 
 ## Adding a new operation
 

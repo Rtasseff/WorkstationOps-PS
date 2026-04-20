@@ -43,8 +43,13 @@ function Register-OpTask {
             $trigger.MonthsOfYear = 4095  # all 12 months
             $trigger.StartBoundary = $startBoundary
         }
+        "Daily" {
+            $trigger = $taskDef.Triggers.Create(2)  # TASK_TRIGGER_DAILY
+            $trigger.DaysInterval = if ($Spec.ContainsKey('DaysInterval')) { [int]$Spec.DaysInterval } else { 1 }
+            $trigger.StartBoundary = $startBoundary
+        }
         default {
-            throw "Register-OpTask: unsupported Trigger '$($Spec.Trigger)'. Supported: Monthly"
+            throw "Register-OpTask: unsupported Trigger '$($Spec.Trigger)'. Supported: Monthly, Daily"
         }
     }
 
