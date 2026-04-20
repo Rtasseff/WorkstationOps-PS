@@ -44,10 +44,10 @@ net use K: \\server\share /persistent:yes
 .\ops schedule
 
 # 4. (Optional) Run a dry-run to see what would happen
-.\ops run backup --dry-run
+.\ops run wsl-backup --dry-run
 
 # 5. Run the first backup
-.\ops run backup
+.\ops run wsl-backup
 ```
 
 ## Rebuilding WSL from a backup
