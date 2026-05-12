@@ -32,6 +32,8 @@ This gives monthly nudges without ever killing WSL unexpectedly.
 - If the remote latest is already present locally (same name + size), logs "already have it" and skips the copy
 - If the VPS is unreachable or `X:` isn't mounted, sets a pending flag surfaced by `.\ops status`
 
+**Known: `X:` may be unavailable at 03:00.** Observed 2026-04-30 through 2026-05-12: the scheduled 03:00 run found `X:\` not mounted each night, deferred with pending reason `drive-unavailable`, and a manual `.\ops run vps-backup` during business hours pulled the missed exports successfully. The first occurrence is normal (workstation asleep, share remount delayed, etc.); if it recurs more than a couple more times, consider shifting the time in `Op-ScheduleSpec` (`operations\vps-backup.ps1`) to an hour when the workstation is reliably logged in.
+
 ## Quick start
 
 ```powershell

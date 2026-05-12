@@ -59,13 +59,13 @@ function Get-Lock {
     if (Test-Path $lockFile) {
         $content = Get-Content $lockFile -ErrorAction SilentlyContinue
         if ($content) {
-            $pid = [int]$content
-            $proc = Get-Process -Id $pid -ErrorAction SilentlyContinue
+            $lockPid = [int]$content
+            $proc = Get-Process -Id $lockPid -ErrorAction SilentlyContinue
             if ($proc) {
-                Write-Log -Level ERROR -Message "Another instance is running (PID $pid). Lock file: $lockFile"
+                Write-Log -Level ERROR -Message "Another instance is running (PID $lockPid). Lock file: $lockFile"
                 return $false
             } else {
-                Write-Log -Level WARN -Message "Removing stale lock file (PID $pid no longer running)"
+                Write-Log -Level WARN -Message "Removing stale lock file (PID $lockPid no longer running)"
                 Remove-Item $lockFile -Force
             }
         } else {
