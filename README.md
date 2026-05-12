@@ -11,7 +11,7 @@ aggregate.
 
 | Name | Cadence | Purpose |
 |------|---------|---------|
-| `wsl-backup` | Monthly (1st @ 14:00) | Full export of the Ubuntu WSL distro to `K:\rtasseff\wsl-gold` |
+| `wsl-backup` | Monthly (1st @ 14:00) | Full export of the Ubuntu WSL distro to `D:\backup\wsl-gold` (local secondary backup; see `D:\README.md`) |
 | `vps-backup` | Daily @ 03:00 | Pull latest ReDIB DB + files backups from the VPS to `X:\backup\ReDIB-Portal` |
 
 ### wsl-backup
@@ -77,7 +77,7 @@ To restore a WSL distro from a backup export:
 wsl --unregister Ubuntu
 
 # 2. Import the backup — choose your install location
-wsl --import Ubuntu C:\Users\rtasseff\WSL\Ubuntu K:\rtasseff\wsl-gold\wsl-ubuntu-2026-02-01.tar
+wsl --import Ubuntu C:\Users\rtasseff\WSL\Ubuntu D:\backup\wsl-gold\wsl-ubuntu-2026-02-01.tar
 
 # 3. Set the default user (replace 'rtasseff' with your WSL username)
 ubuntu config --default-user rtasseff
@@ -95,8 +95,8 @@ wsl -d Ubuntu -- whoami
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `$DISTRO_NAME` | `Ubuntu` | WSL distro name (as shown by `wsl -l -v`) |
-| `$BACKUP_DEST` | `K:\rtasseff\wsl-gold` | Destination for .tar exports |
-| `$BACKUP_DRIVE` | `K:\` | Drive to check for availability |
+| `$BACKUP_DEST` | `D:\backup\wsl-gold` | Destination for .tar exports (local D:, not backed up; secondary to in-WSL X: sync) |
+| `$BACKUP_DRIVE` | `D:\` | Drive to check for availability |
 | `$BACKUP_RETENTION` | `1` | Keep N most recent exports |
 | `$LOG_RETENTION_DAYS` | `90` | Delete logs older than this |
 | `$TASK_NAME` | `WorkstationOps-WSL-Backup` | Task Scheduler job name |

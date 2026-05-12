@@ -3,7 +3,7 @@
 
 $OpName        = "wsl-backup"
 $OpLabel       = "WSL Backup"
-$OpDescription = "Monthly WSL distro export to network drive"
+$OpDescription = "Monthly WSL distro export to local D: drive"
 
 # $OpsRoot is set by ops.ps1 before dot-sourcing. Fall back for standalone dot-sourcing.
 if (-not $OpsRoot) {

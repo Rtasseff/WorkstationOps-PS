@@ -60,7 +60,7 @@ wsl --install --no-distribution
 
 # 2. Import the backup
 #    Choose where to store the new ext4.vhdx
-wsl --import Ubuntu C:\Users\rtasseff\WSL\Ubuntu K:\rtasseff\wsl-gold\wsl-ubuntu-2026-02-01.tar
+wsl --import Ubuntu C:\Users\rtasseff\WSL\Ubuntu D:\backup\wsl-gold\wsl-ubuntu-2026-02-01.tar
 
 # 3. Set default user
 ubuntu config --default-user rtasseff

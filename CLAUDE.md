@@ -17,7 +17,7 @@ captures non-obvious constraints.
 
 - **Never run `.\ops run wsl-backup` without `--dry-run`** during
   development. A real run terminates the user's WSL distro, takes 10-30
-  minutes, and writes a 20+ GB tar to the network drive.
+  minutes, and writes a 20+ GB tar to `D:\backup\wsl-gold`.
 - `.\ops verify`, `.\ops status`, `.\ops status --brief`, and `.\ops run
   wsl-backup --dry-run` are all safe and fast.
 
