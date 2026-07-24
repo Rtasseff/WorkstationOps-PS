@@ -13,6 +13,7 @@ aggregate.
 |------|---------|---------|
 | `wsl-backup` | Monthly (1st @ 14:00) | Full export of the Ubuntu WSL distro to `D:\backup\wsl-gold` (local secondary backup; see `D:\README.md`) |
 | `vps-backup` | Daily @ 03:00 | Pull latest ReDIB DB + files backups from the VPS to `X:\backup\ReDIB-Portal` |
+| `finder-refresh` | Daily @ 03:00 | Rebuild the gjesus3 researcher Finder index (global + per-project `index.html`) from the registry |
 
 ### wsl-backup
 
@@ -33,6 +34,15 @@ This gives monthly nudges without ever killing WSL unexpectedly.
 - If the VPS is unreachable or `X:` isn't mounted, sets a pending flag surfaced by `.\ops status`
 
 **Known: `X:` may be unavailable at 03:00.** Observed 2026-04-30 through 2026-05-12: the scheduled 03:00 run found `X:\` not mounted each night, deferred with pending reason `drive-unavailable`, and a manual `.\ops run vps-backup` during business hours pulled the missed exports successfully. The first occurrence is normal (workstation asleep, share remount delayed, etc.); if it recurs more than a couple more times, consider shifting the time in `Op-ScheduleSpec` (`operations\vps-backup.ps1`) to an hour when the workstation is reliably logged in.
+
+### finder-refresh
+
+- **Task Scheduler** fires every day at 3:00 AM
+- Rebuilds the researcher Finder from the live registry: the global `registries\index.html` plus one `index.html` per project, written back to the gjesus3 NAS over UNC
+- **The generator itself lives in the separate gjesus3-pilot repo** (`tools\generate_index.py`). This op owns only the schedule, logging, and health signal; gjesus3-pilot owns how a Finder is built. The single coupling path is `$GJESUS3_REPO` in `config\finder-refresh.conf.ps1` -- `.\ops verify finder-refresh` fails loudly if that repo is moved
+- Unlike `vps-backup`, 3:00 AM is fine here: the target QNAP is always mounted and has no IT maintenance window
+- **Health signal:** `.\ops status finder-refresh` reports the published index's build time. If it is older than 30h (a missed daily run) status shows STALE; a failed scheduled run sets a pending flag and a tray notification, both surfaced by `.\ops status`
+- If the NAS is unreachable at 03:00 the run defers cleanly (pending flag) instead of failing hard, exactly like `vps-backup` with an offline drive
 
 ## Quick start
 
@@ -137,6 +147,19 @@ icacls "$env:USERPROFILE\.ssh\id_ed25519_vps" /inheritance:r /grant:r "${env:USE
 ```
 
 The host's public key must be in `%USERPROFILE%\.ssh\known_hosts` (seed it once via `ssh-keyscan -t ed25519 <ip> >> known_hosts` after verifying the fingerprint).
+
+### `config\finder-refresh.conf.ps1`
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `$GJESUS3_REPO` | `...\projects\RDM\highCap\gjesus3-pilot` | Path to the gjesus3-pilot repo. **The one cross-repo coupling** -- change this line if you move that repo |
+| `$PYTHON` | Store-Python 3.13 full path | Python interpreter. A full path, not the bare `python` alias (Task Scheduler PATH is unreliable) |
+| `$NAS_UNC` | `\\GJESUS3\gjesus3\gjesus3-data` | gjesus3 NAS container, by UNC (not a mapped drive) |
+| `$STALE_AFTER_HOURS` | `30` | Status reports STALE if the published index is older than this |
+| `$LOG_RETENTION_DAYS` | `90` | Delete logs older than this |
+| `$TASK_NAME` | `WorkstationOps-finder-refresh` | Task Scheduler job name |
+
+The generator is pure standard library, so `finder-refresh` needs no venv or packages -- just the interpreter and the gjesus3-pilot working tree present on disk.
 
 ## Notes
 
