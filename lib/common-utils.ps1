@@ -178,11 +178,57 @@ function Ensure-Directory {
     }
 }
 
+function Invoke-WithTimeout {
+    param(
+        [Parameter(Mandatory)][scriptblock]$ScriptBlock,
+        [object[]]$ArgumentList = @(),
+        [int]$TimeoutSeconds = 15,
+        $TimeoutResult = $null
+    )
+    # Run $ScriptBlock on a background runspace and wait up to $TimeoutSeconds.
+    # Returns the scriptblock's last output object, or $TimeoutResult if it does
+    # not finish in time. A timed-out worker is abandoned -- it may still be
+    # blocked in a wedged native call (e.g. Test-Path on a dead SMB mount), so
+    # the caller must not depend on it stopping; it dies with the process. Used
+    # to keep drive probes from hanging an entire run when a share is mid-outage.
+    $ps = [powershell]::Create()
+    [void]$ps.AddScript($ScriptBlock.ToString())
+    foreach ($a in $ArgumentList) { [void]$ps.AddArgument($a) }
+
+    $async = $ps.BeginInvoke()
+    $finished = $async.AsyncWaitHandle.WaitOne([TimeSpan]::FromSeconds($TimeoutSeconds))
+    if (-not $finished) {
+        # Do not block on Dispose(); the worker thread may be stuck. Best-effort
+        # async stop, then walk away.
+        try { [void]$ps.BeginStop($null, $null) } catch {}
+        return $TimeoutResult
+    }
+
+    $val = $null
+    try {
+        $result = $ps.EndInvoke($async)
+        foreach ($item in $result) { $val = $item }
+    } catch {
+        $val = $TimeoutResult
+    }
+    try { $ps.Dispose() } catch {}
+    return $val
+}
+
 function Test-DriveAvailable {
     param(
-        [Parameter(Mandatory)][string]$Drive
+        [Parameter(Mandatory)][string]$Drive,
+        [int]$TimeoutSeconds = 15
     )
     # Normalize: accept "K:", "K:\", or "K"
     $letter = $Drive.TrimEnd(':', '\') + ":"
-    return Test-Path "$letter\"
+    $root = "$letter\"
+
+    # Test-Path against a wedged network mount (e.g. an SMB share mid-outage)
+    # can block for a very long time -- long enough to leave a scheduled run's
+    # PowerShell window hung open. Bound it so the run fails fast and skips
+    # cleanly instead of hanging.
+    $probe = { param($p) Test-Path -LiteralPath $p }
+    $available = Invoke-WithTimeout -ScriptBlock $probe -ArgumentList @($root) -TimeoutSeconds $TimeoutSeconds -TimeoutResult $false
+    return [bool]$available
 }

@@ -9,7 +9,8 @@ function Register-OpTask {
     )
 
     # Required spec keys: TaskName, Description, Trigger, Time
-    # Optional:          DayOfMonth (for Monthly)
+    # Optional:          DayOfMonth (Monthly), DaysInterval (Daily),
+    #                    ExecutionTimeLimit (ISO-8601 duration, default P3D)
     foreach ($key in @('TaskName','Description','Trigger','Time')) {
         if (-not $Spec.ContainsKey($key)) {
             throw "Register-OpTask: spec missing required key '$key'"
@@ -30,7 +31,12 @@ function Register-OpTask {
     $taskDef.Settings.StartWhenAvailable = $true
     $taskDef.Settings.DisallowStartIfOnBatteries = $false
     $taskDef.Settings.StopIfGoingOnBatteries = $false
-    $taskDef.Settings.ExecutionTimeLimit = "P3D"
+    # Per-op cap: a wedged run self-terminates rather than lingering (and
+    # blocking the next run under MultipleInstancesPolicy = IgnoreNew). Ops that
+    # legitimately run long (e.g. wsl-backup export) set a larger value; ops
+    # that omit it keep the historical 3-day ceiling.
+    $execLimit = if ($Spec.ContainsKey('ExecutionTimeLimit')) { [string]$Spec.ExecutionTimeLimit } else { "P3D" }
+    $taskDef.Settings.ExecutionTimeLimit = $execLimit
 
     $hh, $mm = $Spec.Time.Split(':')
     $startBoundary = (Get-Date -Hour ([int]$hh) -Minute ([int]$mm) -Second 0).ToString("yyyy-MM-ddTHH:mm:ss")

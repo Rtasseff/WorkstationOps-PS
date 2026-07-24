@@ -247,10 +247,15 @@ function Op-Verify {
 
 function Op-ScheduleSpec {
     return @{
-        TaskName    = $TASK_NAME
-        Description = $OpDescription
-        Trigger     = "Daily"
-        Time        = "03:00"
+        TaskName           = $TASK_NAME
+        Description        = $OpDescription
+        Trigger            = "Daily"
+        # 05:00 dodges the ~03:00 IT backup window that makes X: (a network
+        # share) intermittently unavailable / wedged at that hour.
+        Time               = "05:00"
+        # Short cap: if X: is wedged the run should die fast, not hang until the
+        # next day. A healthy pull finishes in ~3s.
+        ExecutionTimeLimit = "PT10M"
     }
 }
 
