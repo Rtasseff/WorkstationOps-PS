@@ -48,9 +48,14 @@ persistent landing pad. Consequences:
 - It reuses `logs/<op>.lock` as the supervisor's PID handle. Started interactively the
   supervisor is just `pwsh.exe`/`powershell.exe`, with the op name nowhere in its
   command line — the lock file is the only reliable way to find it.
-- **Do not give it a schedule without also raising `ExecutionTimeLimit`.** The default
-  `P3D` in `Register-OpTask` would kill a persistent service after three days. A logon
-  trigger (`TASK_TRIGGER_LOGON`) also does not exist in `lib\scheduled-task.ps1` yet.
+- **A service op must set `ExecutionTimeLimit = "PT0S"`** (no limit). The default `P3D`
+  in `Register-OpTask` silently kills a persistent service after three days.
+- `lib\scheduled-task.ps1` now supports a **`Logon`** trigger (`TASK_TRIGGER_LOGON`)
+  alongside Monthly/Daily. `Time` is required for the calendar triggers and ignored for
+  `Logon`; the validation and the start-boundary calculation are both conditional, so a
+  `Logon` spec that omits `Time` is valid and a `Daily` one that omits it still throws.
+  Logon triggers are scoped to the registering user via `UserId` — without that they
+  fire on **any** user's logon.
 
 ## Scheduled-task gotcha
 

@@ -441,18 +441,26 @@ function Op-Verify {
 # -- Op-ScheduleSpec ----------------------------------------------------------
 
 function Op-ScheduleSpec {
-    # ALWAYS-MANUAL, deliberately. Two things must land before this can return a
-    # spec, and both are real work rather than a flag flip:
+    # Starts at logon and stays up. The landing pad being down is the ONE failure
+    # with no recovery from inside the acquisition box's restricted-access room --
+    # the operator gets a single entry per visit and cannot step out to fix it, so
+    # the visit is simply lost. Removing the "did I remember to start it" step is
+    # worth a port opening automatically at logon.
     #
-    #   1. lib\scheduled-task.ps1 supports Monthly and Daily triggers only, and
-    #      throws on anything else. A landing pad wants TASK_TRIGGER_LOGON (9),
-    #      which does not exist there yet. Adding it touches shared library code
-    #      that three other ops depend on.
-    #   2. Every other op is a batch job that exits. This one blocks forever, so
-    #      the default ExecutionTimeLimit of P3D would kill it after three days.
-    #      A scheduled spec must set ExecutionTimeLimit to an unbounded value.
+    # Two details this spec depends on, both easy to get wrong:
+    #   ExecutionTimeLimit = PT0S  -- "no limit". The library default of P3D would
+    #       kill this persistent service after three days, which is exactly the
+    #       silent failure the schedule exists to prevent.
+    #   Delay = PT1M  -- WSL and the network are not necessarily ready the instant
+    #       the shell is. Op-Run retries regardless; the delay just keeps the log
+    #       from opening with avoidable warnings on every logon.
     #
-    # Automation was also explicitly deferred by the user until the process is
-    # proven end to end from the Molecubes box.
-    return $null
+    # Undo with: .\ops unschedule molecubes-tunnel
+    return @{
+        TaskName           = $TASK_NAME
+        Description        = "$OpDescription. Starts at logon and runs until stopped with '.\ops stop molecubes-tunnel'."
+        Trigger            = "Logon"
+        Delay              = "PT1M"
+        ExecutionTimeLimit = "PT0S"
+    }
 }

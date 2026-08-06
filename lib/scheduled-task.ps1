@@ -8,10 +8,15 @@ function Register-OpTask {
         [Parameter(Mandatory)][string]$OpName
     )
 
-    # Required spec keys: TaskName, Description, Trigger, Time
-    # Optional:          DayOfMonth (Monthly), DaysInterval (Daily),
-    #                    ExecutionTimeLimit (ISO-8601 duration, default P3D)
-    foreach ($key in @('TaskName','Description','Trigger','Time')) {
+    # Required spec keys: TaskName, Description, Trigger
+    #                     Time -- required for Monthly/Daily, meaningless for Logon
+    # Optional:           DayOfMonth (Monthly), DaysInterval (Daily),
+    #                     Delay (Logon, ISO-8601 duration),
+    #                     ExecutionTimeLimit (ISO-8601 duration, default P3D;
+    #                     use PT0S for a service op that must never be killed)
+    $required = @('TaskName','Description','Trigger')
+    if ($Spec.Trigger -ne 'Logon') { $required += 'Time' }
+    foreach ($key in $required) {
         if (-not $Spec.ContainsKey($key)) {
             throw "Register-OpTask: spec missing required key '$key'"
         }
@@ -38,8 +43,13 @@ function Register-OpTask {
     $execLimit = if ($Spec.ContainsKey('ExecutionTimeLimit')) { [string]$Spec.ExecutionTimeLimit } else { "P3D" }
     $taskDef.Settings.ExecutionTimeLimit = $execLimit
 
-    $hh, $mm = $Spec.Time.Split(':')
-    $startBoundary = (Get-Date -Hour ([int]$hh) -Minute ([int]$mm) -Second 0).ToString("yyyy-MM-ddTHH:mm:ss")
+    # Logon triggers have no start time, so this must not run unconditionally --
+    # $Spec.Time.Split() on a missing key would throw before reaching the switch.
+    $startBoundary = $null
+    if ($Spec.ContainsKey('Time') -and $Spec.Time) {
+        $hh, $mm = $Spec.Time.Split(':')
+        $startBoundary = (Get-Date -Hour ([int]$hh) -Minute ([int]$mm) -Second 0).ToString("yyyy-MM-ddTHH:mm:ss")
+    }
 
     switch ($Spec.Trigger) {
         "Monthly" {
@@ -54,8 +64,19 @@ function Register-OpTask {
             $trigger.DaysInterval = if ($Spec.ContainsKey('DaysInterval')) { [int]$Spec.DaysInterval } else { 1 }
             $trigger.StartBoundary = $startBoundary
         }
+        "Logon" {
+            # For long-running SERVICE ops (e.g. molecubes-tunnel) that must be up
+            # whenever the workstation is, without anyone remembering to start them.
+            $trigger = $taskDef.Triggers.Create(9)  # TASK_TRIGGER_LOGON
+            # Scope to THIS user. Without UserId the trigger fires on ANY user's
+            # logon, which would start the op under accounts it was never meant for.
+            $trigger.UserId = "$env:USERDOMAIN\$env:USERNAME"
+            # Networking and WSL are not necessarily ready the instant the shell is.
+            # The op retries on its own, but a short delay keeps the log clean.
+            if ($Spec.ContainsKey('Delay')) { $trigger.Delay = [string]$Spec.Delay }
+        }
         default {
-            throw "Register-OpTask: unsupported Trigger '$($Spec.Trigger)'. Supported: Monthly, Daily"
+            throw "Register-OpTask: unsupported Trigger '$($Spec.Trigger)'. Supported: Monthly, Daily, Logon"
         }
     }
 

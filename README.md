@@ -14,7 +14,7 @@ aggregate.
 | `wsl-backup` | Monthly (1st @ 14:00) | Full export of the Ubuntu WSL distro to `D:\backup\wsl-gold` (local secondary backup; see `D:\README.md`) |
 | `vps-backup` | Daily @ 03:00 | Pull latest ReDIB DB + files backups from the VPS to `X:\backup\ReDIB-Portal` |
 | `finder-refresh` | Daily @ 03:00 | Rebuild the gjesus3 researcher Finder index (global + per-project `index.html`) from the registry |
-| `molecubes-tunnel` | Manual (long-running service) | Windows-side landing pad for the reverse SSH tunnel from the Molecubes PET/CT acquisition box |
+| `molecubes-tunnel` | At logon (long-running service) | Windows-side landing pad for the reverse SSH tunnel from the Molecubes PET/CT acquisition box |
 
 ### wsl-backup
 
@@ -73,10 +73,19 @@ molecubes-tunnel` (or Ctrl-C in its window).
   (without it the VM idles out, taking sshd with it while the forwarders keep
   answering), re-reads the WSL IP on every rebuild (it is reassigned each WSL boot),
   and rebuilds the whole set if the banner stops arriving
-- **Not scheduled yet, deliberately.** `Op-ScheduleSpec` returns `$null`. Enabling it
-  needs a `Logon` trigger in `lib\scheduled-task.ps1` (which supports Monthly/Daily
-  only) and an unbounded `ExecutionTimeLimit`, since the default `P3D` would kill a
-  persistent service after three days
+- **Scheduled at logon** (`WorkstationOps-MolecubesTunnel`), because the landing pad being
+  down is the one failure with **no recovery** from inside the acquisition box's
+  restricted-access room — the operator gets a single entry per visit and cannot step
+  out to fix it, so the whole visit is lost. This is the first `Logon`-triggered op;
+  the trigger type was added to `lib\scheduled-task.ps1` for it, scoped to this user so
+  it does not fire on anyone else's logon, with a 1-minute delay so WSL and the network
+  are ready. **`ExecutionTimeLimit` is `PT0S` (no limit)** — the library default of
+  `P3D` would kill a persistent service after three days, which is precisely the silent
+  failure the schedule exists to prevent. Reverse it with
+  `.\ops unschedule molecubes-tunnel`
+- **A workstation reboot is not a lost visit.** The acquisition box's LaunchAgent retries
+  every 30s indefinitely, so once the landing pad is back the tunnel re-establishes on
+  its own — no trip to the box required
 
 **Before every trip to the acquisition box, run the acceptance test.** Access to the box is rare and
 scheduled; a failure found at the desk costs minutes, the same failure found at the box costs the

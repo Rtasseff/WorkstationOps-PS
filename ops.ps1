@@ -167,7 +167,9 @@ function Invoke-Schedule {
         Write-Host "$($res.Verb) scheduled task '$($res.TaskName)' for $name." -ForegroundColor Green
         $schedLine = "  Trigger: $($spec.Trigger)"
         if ($spec.ContainsKey('DayOfMonth')) { $schedLine += " (day $($spec.DayOfMonth))" }
-        $schedLine += " at $($spec.Time)"
+        # Logon triggers have no Time; printing "at " with nothing after reads as a bug.
+        if ($spec.ContainsKey('Time') -and $spec.Time) { $schedLine += " at $($spec.Time)" }
+        if ($spec.ContainsKey('Delay')) { $schedLine += " (after $($spec.Delay))" }
         Write-Host $schedLine
         Write-Host "  Verify in Task Scheduler (taskschd.msc) under '$($res.TaskName)'"
     }
