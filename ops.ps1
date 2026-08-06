@@ -217,6 +217,42 @@ function Invoke-Run {
     Op-Run @splat
 }
 
+function Invoke-Stop {
+    # Long-running service ops (a landing pad, a daemon) need a stop action; batch
+    # ops do not, so Op-Stop is optional and its absence is not an error.
+    # An explicit op name is required: op files are dot-sourced into this session,
+    # so iterating would let one op's Op-Stop leak onto the next.
+    if (-not $SubCommand) {
+        $withStop = @()
+        foreach ($n in (Get-OpNames)) {
+            $content = Get-Content (Join-Path $OpsRoot "operations\$n.ps1") -Raw -ErrorAction SilentlyContinue
+            if ($content -match 'function\s+Op-Stop') { $withStop += $n }
+        }
+        Write-Host "Usage: .\ops stop <operation>" -ForegroundColor Red
+        if ($withStop.Count -gt 0) {
+            Write-Host "Operations that support stop: $($withStop -join ', ')"
+        } else {
+            Write-Host "No registered operation defines Op-Stop."
+        }
+        exit 1
+    }
+
+    try {
+        $opFile = Resolve-OpFile -Name $SubCommand
+    } catch {
+        Write-Host $_.Exception.Message -ForegroundColor Red
+        exit 1
+    }
+    . $opFile
+
+    if (-not (Get-Command Op-Stop -ErrorAction SilentlyContinue)) {
+        Write-Host "Operation '$SubCommand' has no stop action (it is not a long-running service)." -ForegroundColor Yellow
+        return
+    }
+
+    Op-Stop
+}
+
 function Invoke-Logs {
     $target = $null
     $n = 50
@@ -271,6 +307,7 @@ function Invoke-Help {
         --force               Skip confirmation prompts
         --dry-run             Show what would happen without doing it
         --scheduled           Non-interactive (used by Task Scheduler)
+    stop <op>                 Stop a long-running operation (service ops only)
     logs [<op>] [N]           Tail latest log (default 50 lines)
     help                      Show this message
 
@@ -291,6 +328,7 @@ switch ($Command) {
     "schedule"    { Invoke-Schedule }
     "unschedule"  { Invoke-Unschedule }
     "run"         { Invoke-Run }
+    "stop"        { Invoke-Stop }
     "logs"        { Invoke-Logs }
     "help"        { Invoke-Help }
     "--help"      { Invoke-Help }

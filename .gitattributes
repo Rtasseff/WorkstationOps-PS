@@ -1,0 +1,11 @@
+# This repo has core.autocrlf=true, which is right for the PowerShell side but
+# would break anything executed by a Unix shell: a .sh file checked out with CRLF
+# fails in WSL with the unhelpful "\r: command not found".
+#
+# Force LF for everything WSL runs.
+*.sh   text eol=lf
+*.py   text eol=lf
+
+# PowerShell stays native (CRLF on Windows).
+*.ps1  text
+*.md   text

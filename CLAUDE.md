@@ -36,6 +36,22 @@ reference `$OpsRoot` from the parent scope (with a fallback for standalone
 dot-sourcing). All ops share `lib/common-utils.ps1` and
 `lib/scheduled-task.ps1` — never duplicate their helpers.
 
+## Service ops (long-running) vs batch ops
+
+`molecubes-tunnel` is the first op whose `Op-Run` **never returns** — it supervises a
+persistent landing pad. Consequences:
+
+- It defines an optional **`Op-Stop`**, dispatched by `.\ops stop <op>`. `Op-Stop` is
+  optional by design; batch ops omit it and `stop` says so rather than failing.
+- `stop` **requires an explicit op name.** Op files are dot-sourced into the caller's
+  session, so iterating all ops would let one op's `Op-Stop` leak onto the next.
+- It reuses `logs/<op>.lock` as the supervisor's PID handle. Started interactively the
+  supervisor is just `pwsh.exe`/`powershell.exe`, with the op name nowhere in its
+  command line — the lock file is the only reliable way to find it.
+- **Do not give it a schedule without also raising `ExecutionTimeLimit`.** The default
+  `P3D` in `Register-OpTask` would kill a persistent service after three days. A logon
+  trigger (`TASK_TRIGGER_LOGON`) also does not exist in `lib\scheduled-task.ps1` yet.
+
 ## Scheduled-task gotcha
 
 If you change how `ops.ps1` dispatches `run <op>` (argument shape, op name,

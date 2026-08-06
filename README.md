@@ -14,6 +14,7 @@ aggregate.
 | `wsl-backup` | Monthly (1st @ 14:00) | Full export of the Ubuntu WSL distro to `D:\backup\wsl-gold` (local secondary backup; see `D:\README.md`) |
 | `vps-backup` | Daily @ 03:00 | Pull latest ReDIB DB + files backups from the VPS to `X:\backup\ReDIB-Portal` |
 | `finder-refresh` | Daily @ 03:00 | Rebuild the gjesus3 researcher Finder index (global + per-project `index.html`) from the registry |
+| `molecubes-tunnel` | Manual (long-running service) | Windows-side landing pad for the reverse SSH tunnel from the Molecubes PET/CT acquisition box |
 
 ### wsl-backup
 
@@ -43,6 +44,66 @@ This gives monthly nudges without ever killing WSL unexpectedly.
 - Unlike `vps-backup`, 3:00 AM is fine here: the target QNAP is always mounted and has no IT maintenance window
 - **Health signal:** `.\ops status finder-refresh` reports the published index's build time. If it is older than 30h (a missed daily run) status shows STALE; a failed scheduled run sets a pending flag and a tray notification, both surfaced by `.\ops status`
 - If the NAS is unreachable at 03:00 the run defers cleanly (pending flag) instead of failing hard, exactly like `vps-backup` with an offline drive
+
+### molecubes-tunnel
+
+The **first long-running service op** in this repo -- every other operation is a batch
+job that exits. `Op-Run` blocks indefinitely and is stopped with `.\ops stop
+molecubes-tunnel` (or Ctrl-C in its window).
+
+- **Why:** the Molecubes PET/CT acquisition box (`192.168.0.180`) is NAT'd behind its
+  own router and cannot be reached inbound. It dials out to this workstation and we
+  ride that connection backward. Physical access to the box is rare and scheduled,
+  which is what makes this worth the machinery
+- **Why WSL:** Windows has no SSH server installable without admin, which this account
+  does not have. So sshd runs inside WSL and a userspace Python forwarder
+  (`lib\tcp_forward.py`) exposes it on `0.0.0.0`. Ubuntu 24.04's
+  `sshd-socket-generator` reads `Port` from `sshd_config`, so **sshd listens on 2200,
+  not 22**
+- **The generator of domain meaning lives elsewhere,** exactly as with `finder-refresh`:
+  this op owns the Windows half (keepalive, forwarder, ports, health, logs); the
+  gjesus3-pilot repo owns what the box is and the procedure carried to it, under
+  `equipment\nuclear-imaging\`
+- **Health signal:** `.\ops status molecubes-tunnel` probes the workstation's **LAN
+  address**, not loopback, and requires a real SSH banner back. Both details matter --
+  `wslrelay.exe` mirrors WSL's sshd onto `127.0.0.1:2200`, so a loopback probe reports
+  OK even when every forwarder is dead, and a bare TCP connect succeeds even when the
+  upstream is gone
+- **Self-healing:** the supervisor holds WSL awake with a `sleep infinity` keepalive
+  (without it the VM idles out, taking sshd with it while the forwarders keep
+  answering), re-reads the WSL IP on every rebuild (it is reassigned each WSL boot),
+  and rebuilds the whole set if the banner stops arriving
+- **Not scheduled yet, deliberately.** `Op-ScheduleSpec` returns `$null`. Enabling it
+  needs a `Logon` trigger in `lib\scheduled-task.ps1` (which supports Monthly/Daily
+  only) and an unbounded `ExecutionTimeLimit`, since the default `P3D` would kill a
+  persistent service after three days
+
+**Before every trip to the acquisition box, run the acceptance test.** Access to the box is rare and
+scheduled; a failure found at the desk costs minutes, the same failure found at the box costs the
+slot and a week.
+
+```powershell
+.\ops run molecubes-tunnel          # in its own window, leave running
+wsl -d Ubuntu -- bash "/mnt/c/Users/rtasseff/OneDrive - CIC biomaGUNE/WorkstationOps/setup/test-tunnel-path.sh"
+```
+
+It exercises the whole chain using a workstation-local rehearsal key in place of the box: sshd in
+WSL, both forwarder ports **on the LAN address**, key authentication, that the key **cannot** get a
+shell or bind a port outside `permitlisten`, that it **can** open the real `-R` tunnel, that traffic
+flows back through it, and that it survives idle (the regression test for the 5-second forwarder
+timeout). Exit code 0 means safe to travel.
+
+`setup\harden-tunnel-key.sh` is the companion: run it after the box pushes its key with
+`ssh-copy-id`, which always writes an unrestricted entry.
+
+**If a second machine ever needs a tunnel — do not add a second op.** The landing pad
+is equipment-agnostic; only the far end is Molecubes. The MRI acquisition machine is
+the likely next candidate (gjesus3-pilot records that it is also not
+network-accessible). When that happens, or once `molecubes-tunnel` is proven and we
+choose to prepare for it, **rework this op into a generic config-driven `tunnel-host`
+and share it** — rather than copying it per instrument. It was kept specific only
+because the process was not yet proven end to end and specificity was cheaper than a
+premature abstraction.
 
 ## Quick start
 
@@ -75,6 +136,7 @@ every registered operation; with an argument they target just that one.
 | `.\ops run <op>` | Run the named operation interactively |
 | `.\ops run <op> --force` | Skip confirmation prompts |
 | `.\ops run <op> --dry-run` | Show what would happen without doing it |
+| `.\ops stop <op>` | Stop a long-running service op. Requires an explicit op name, and only works for ops that define `Op-Stop` (batch ops report that they have none) |
 | `.\ops logs [<op>] [N]` | Show last N lines of the latest log (default 50) |
 | `.\ops help` | Usage info, lists registered operations |
 
