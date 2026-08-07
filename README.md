@@ -223,7 +223,7 @@ The host's public key must be in `%USERPROFILE%\.ssh\known_hosts` (seed it once 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `$GJESUS3_REPO` | `...\projects\RDM\highCap\gjesus3-pilot` | Path to the gjesus3-pilot repo. **The one cross-repo coupling** -- change this line if you move that repo |
+| `$GJESUS3_REPO` | `...\projects\DataInfra\gjesus3-archive\gjesus3-pilot` | Path to the gjesus3-pilot repo. **The one cross-repo coupling** -- change this line if you move that repo |
 | `$PYTHON` | Store-Python 3.13 full path | Python interpreter. A full path, not the bare `python` alias (Task Scheduler PATH is unreliable) |
 | `$NAS_UNC` | `\\GJESUS3\gjesus3\gjesus3-data` | gjesus3 NAS container, by UNC (not a mapped drive) |
 | `$STALE_AFTER_HOURS` | `30` | Status reports STALE if the published index is older than this |

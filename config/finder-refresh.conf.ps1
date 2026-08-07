@@ -9,7 +9,7 @@
 # workstation, update $GJESUS3_REPO below -- it is the ONLY line here that needs
 # to change. '.\ops verify finder-refresh' checks this path and fails loudly if
 # it is wrong.
-$GJESUS3_REPO   = "C:\Users\rtasseff\OneDrive - CIC biomaGUNE\projects\RDM\highCap\gjesus3-pilot"
+$GJESUS3_REPO   = "C:\Users\rtasseff\OneDrive - CIC biomaGUNE\projects\DataInfra\gjesus3-archive\gjesus3-pilot"
 
 # Python interpreter -- a FULL path, NOT the bare 'python' WindowsApps alias.
 # The Task Scheduler logon context has an unreliable PATH (the same reason

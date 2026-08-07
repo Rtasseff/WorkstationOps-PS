@@ -54,7 +54,7 @@ wsl -d Ubuntu -- bash "/mnt/c/Users/rtasseff/OneDrive - CIC biomaGUNE/Workstatio
    boundary with gjesus3-pilot, and the rule about generalising to a `tunnel-host` later.
 2. **`README.md`**, `molecubes-tunnel` section — operational summary.
 3. **`CLAUDE.md`**, "Service ops" section — why this op differs from every other op here.
-4. **`..\projects\RDM\highCap\gjesus3-pilot\equipment\nuclear-imaging\live_machine_remote_access.md`**
+4. **`..\projects\DataInfra\gjesus3-archive\gjesus3-pilot\equipment\nuclear-imaging\live_machine_remote_access.md`**
    — the domain half: why we need the box, the safety rules for a live acquisition machine, and open
    questions NI-RA-01…05.
 5. **`S:\gnuclear\2026\Jesus\Ryan\tunnel.txt`** — the operator field card actually carried to the
