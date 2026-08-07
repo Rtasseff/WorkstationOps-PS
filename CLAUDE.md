@@ -36,6 +36,14 @@ reference `$OpsRoot` from the parent scope (with a fallback for standalone
 dot-sourcing). All ops share `lib/common-utils.ps1` and
 `lib/scheduled-task.ps1` — never duplicate their helpers.
 
+## If the task involves molecubes-tunnel, read the handoff first
+
+**`operations/molecubes-tunnel.HANDOFF.md`** — cold-start briefing: current state, what is verified
+vs never tested, a symptom → cause → action triage table, and the traps that have already cost a
+wasted trip to the acquisition box. Several of those traps produce *misleading* symptoms (three look
+like authentication failures and are not), so diagnosing from first principles tends to go wrong.
+Read it before debugging anything tunnel-related.
+
 ## Service ops (long-running) vs batch ops
 
 `molecubes-tunnel` is the first op whose `Op-Run` **never returns** — it supervises a
