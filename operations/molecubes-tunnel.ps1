@@ -112,8 +112,13 @@ function Test-SshBanner {
 # -- Process discovery --------------------------------------------------------
 
 function Get-ForwarderProcesses {
+    # Match THIS op's forwarder by its full script path, not by the bare name
+    # 'tcp_forward'. A copy of the script running from anywhere else -- a manual
+    # port-forward out of the home directory, a second project -- is not ours.
+    # Op-Stop kills whatever this returns, so a loose match here does not merely
+    # miscount in Op-Status, it terminates unrelated processes.
     return @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -like 'python*' -and $_.CommandLine -like '*tcp_forward*' })
+        Where-Object { $_.Name -like 'python*' -and $_.CommandLine -like "*$FORWARDER_PATH*" })
 }
 
 function Get-KeepaliveProcesses {
@@ -192,6 +197,10 @@ function Op-Run {
 
         while ($true) {
 
+            # Covers the retry paths below, which 'continue' back here without ever
+            # reaching the health loop. See the rollover note there.
+            Initialize-Log -Name $OpName
+
             # Rebuild from scratch: stale children, then a fresh keepalive + IP.
             foreach ($p in $procs) {
                 if ($p -and -not $p.HasExited) { Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue }
@@ -258,6 +267,15 @@ function Op-Run {
 
             while ($true) {
                 Start-Sleep -Seconds $HEALTH_INTERVAL_SECONDS
+
+                # Roll the log over at midnight. Initialize-Log pins the date at the
+                # moment it is called, which is correct for a batch op that finishes
+                # the day it starts -- but this supervisor runs for months, so every
+                # event would otherwise land in the file named for its start date.
+                # Someone triaging "what happened Tuesday" would find no Tuesday log
+                # and wrongly conclude the op had not been running.
+                Initialize-Log -Name $OpName
+
                 if ($procs | Where-Object { $_.HasExited }) {
                     Write-Log -Level WARN -Message "A forwarder exited. Rebuilding."
                     break
