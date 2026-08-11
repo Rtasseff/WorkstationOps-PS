@@ -36,7 +36,7 @@ physical resource into an ordinary login, and unblocks Gate-0 for NI live-box sy
 |---|---|
 | `molecubes-tunnel` op (run/stop/status/verify) | ✅ built, verified |
 | Scheduled at logon (`WorkstationOps-MolecubesTunnel`) | ✅ registered, verified by on-demand start |
-| Acceptance test `setup\test-tunnel-path.sh` | ✅ 9/9 as of 2026-08-06 |
+| Acceptance test `setup\test-tunnel-path.sh` | ✅ 9/9, re-run 2026-08-10 after the engine rework |
 | Firewall + routing from the box | ✅ verified from the box on 2026-08-05 |
 | Restricted tunnel key in WSL `authorized_keys` | ✅ installed (workstation-local rehearsal key) |
 | **The box running the tunnel** | ❌ **never done** |
@@ -59,14 +59,20 @@ wsl -d Ubuntu -- bash "/mnt/c/Users/rtasseff/OneDrive - CIC biomaGUNE/Workstatio
 
 ## 3. Read in this order
 
-1. **`operations\molecubes-tunnel.ps1`** — the header comments carry the design rationale, the
-   boundary with gjesus3-pilot, and the rule about generalising to a `tunnel-host` later.
-2. **`README.md`**, `molecubes-tunnel` section — operational summary.
-3. **`CLAUDE.md`**, "Service ops" section — why this op differs from every other op here.
-4. **`..\projects\DataInfra\gjesus3-archive\gjesus3-pilot\equipment\nuclear-imaging\live_machine_remote_access.md`**
+1. **`operations\molecubes-tunnel.ps1`** — a thin instance definition since the rework. The header
+   comments still carry the design rationale, the boundary with gjesus3-pilot, and the failure modes
+   learned here; the body is only this instance's config-contract assignments.
+2. **`lib\tunnel-engine.ps1`** — where every mechanic now lives: supervisor loop, probes, forwarder
+   and keepalive discovery, and all five `Op-*` functions. **Do not skip this one** — nothing in §4
+   or §5 can be traced from the instance file alone.
+3. **`README.md`**, `molecubes-tunnel` section — operational summary; `Backlog` for known quirks
+   that are accepted rather than bugs.
+4. **`CLAUDE.md`**, "Service ops" and "Tunnel instances share an engine" — why this op differs from
+   every other op here, and the rules an instance file must obey.
+5. **`..\projects\DataInfra\gjesus3-archive\gjesus3-pilot\equipment\nuclear-imaging\live_machine_remote_access.md`**
    — the domain half: why we need the box, the safety rules for a live acquisition machine, and open
    questions NI-RA-01…05.
-5. **`S:\gnuclear\2026\Jesus\Ryan\tunnel.txt`** — the operator field card actually carried to the
+6. **`S:\gnuclear\2026\Jesus\Ryan\tunnel.txt`** — the operator field card actually carried to the
    box. If someone reports a step number, it refers to this file.
 
 ---
@@ -99,6 +105,14 @@ why the key options include `command="/bin/false"`.
 box's key tunnel-only. The field card's step-5 check
 (`ssh -i ... rtasseff@10.10.2.195 hostname`) then correctly fails. **That is not a regression** —
 do not "fix" it by relaxing the key.
+
+**The supervisor's console window is load-bearing — do not close it.** The task launches it
+`-WindowStyle Hidden`, but Windows 11 hands the console to Windows Terminal, which ignores that
+flag, so it appears as an ordinary PowerShell window that looks like something someone left open.
+Closing it closes the console and kills the supervisor, taking the landing pad down. Stop it with
+`.\ops stop molecubes-tunnel`. There is one such window per running service op. Known and accepted;
+see the Backlog section of `README.md` for the mechanism and for two diagnostics that give
+misleading answers.
 
 ---
 

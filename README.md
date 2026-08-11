@@ -52,6 +52,13 @@ The **first long-running service op** in this repo -- every other operation is a
 job that exits. `Op-Run` blocks indefinitely and is stopped with `.\ops stop
 molecubes-tunnel` (or Ctrl-C in its window).
 
+**That window is the process, not a leftover.** Every tunnel-engine instance puts an
+ordinary PowerShell window on the desktop -- one per running op -- even though the
+scheduled task launches it `-WindowStyle Hidden`. The flag is not being ignored by this
+code; Windows 11 hands the console to Windows Terminal, which does not honor it (see
+[Backlog](#backlog)). Closing the window closes the console and kills the supervisor
+with it. Stop a service op with `.\ops stop <op>`, never the X.
+
 - **Why:** the Molecubes PET/CT acquisition box (`192.168.0.180`) is NAT'd behind its
   own router and cannot be reached inbound. It dials out to this workstation and we
   ride that connection backward. Physical access to the box is rare and scheduled,
@@ -276,6 +283,37 @@ The generator is pure standard library, so `finder-refresh` needs no venv or pac
 - **WSL termination:** `wsl --export` requires the distro to be stopped. The interactive mode always prompts before terminating. The scheduled mode never terminates — it defers and notifies instead.
 - **vps-backup pull size:** Typically tiny (< 1 MB); a few seconds per run
 - **Logs:** Written to `logs\<op>-YYYY-MM-DD.log`, auto-rotated after 90 days per each op's `$LOG_RETENTION_DAYS`
+
+## Backlog
+
+Known and deliberately not fixed. Low priority -- recorded so it is not rediagnosed.
+
+- **Service ops are not truly headless.** `molecubes-tunnel` and `omero-web-forward`
+  each show a visible PowerShell window, one per running instance, despite
+  `lib\scheduled-task.ps1` launching them with `-WindowStyle Hidden`. The flag *is*
+  honored -- it governs the classic conhost window, and Windows 11 no longer uses one.
+  The default terminal application ("Let Windows decide" = Windows Terminal) triggers a
+  console handoff: conhost starts in pseudoconsole mode and passes the session to the
+  running `WindowsTerminal.exe`, which opens a normal visible window. Neither
+  `-WindowStyle Hidden` nor Task Scheduler's own "Hidden" checkbox reaches it. Cosmetic,
+  but the windows accumulate and invite being closed -- which kills the tunnel.
+
+  Diagnosed 2026-08-11. Two checks give *misleading* answers and should not be repeated:
+  `GetConsoleWindow()` reports the supervisor's window as not visible (true, and
+  irrelevant -- that is the chrome-less pseudoconsole), and an `EnumWindows` scan
+  filtered to the supervisor's conhost finds nothing (the visible window belongs to
+  `WindowsTerminal.exe`, unrelated to the op by parentage). What identifies them: exactly
+  one Windows Terminal window titled with the full `powershell.exe` v1.0 path per running
+  service op, matching the only classic `powershell.exe` processes parented to Task
+  Scheduler's `svchost.exe`.
+
+  Two fixes exist, both declined for now: set Default terminal application to "Windows
+  Console Host" (user-wide side effect for a cosmetic gain), or move the tasks to "Run
+  whether user is logged on or not" (S4U -- session 0, no window possible, and it would
+  additionally make the tunnels survive logout). The second is worth revisiting after the
+  acquisition-box visit; it is a runtime-behavior change and WSL-from-session-0 is
+  unverified here, so it is not something to try while the box has never exercised the
+  tunnel.
 
 ## Adding a new operation
 
