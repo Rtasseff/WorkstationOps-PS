@@ -31,6 +31,6 @@ $TUNNEL_PORT    = 2222            # reverse listener, bound on WSL loopback
 $HEALTH_INTERVAL_SECONDS = 15
 
 # -- Scheduling ---------------------------------------------------------------
-# Reserved. Op-ScheduleSpec currently returns $null (always-manual) -- see the
-# op header for why automation is deliberately not enabled yet.
+# Logon-triggered service task (registered; see the engine's Op-ScheduleSpec).
+# The "always-manual" note that stood here was stale.
 $TASK_NAME = "WorkstationOps-MolecubesTunnel"

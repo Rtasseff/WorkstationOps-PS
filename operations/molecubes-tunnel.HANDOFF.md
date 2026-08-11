@@ -4,6 +4,15 @@
 **Written:** 2026-08-06. **Status at that date:** workstation side built, scheduled and verified;
 the acquisition box has **never run it**.
 
+> **Update 2026-08-10 — generalized, behavior preserved.** The op's mechanics now live in
+> `lib\tunnel-engine.ps1` (a second consumer appeared: `omero-web-forward`, port 4080, the gjesus3
+> OMERO pilot); `operations\molecubes-tunnel.ps1` is a thin instance definition. Same op name, task
+> name, ports, lock, logs, SSH-banner probe — `setup\test-tunnel-path.sh` re-passed **9/9** after
+> the rework. Everything in this handoff remains valid, with two cosmetic diffs: the WSL keepalive's
+> command line is now `env WSOPS_TUNNEL=molecubes-tunnel sleep infinity` (instance tag), and
+> forwarder discovery additionally matches on this instance's `--listen-port` arguments, so
+> `.\ops stop molecubes-tunnel` can never touch another instance's forwarders (and vice versa).
+
 Read this before touching anything. It exists because the next event is likely to be someone
 returning from the acquisition box with an error string, needing a diagnosis fast — and the traps
 below already cost one wasted visit.
@@ -116,9 +125,9 @@ exactly what it is for. `ssh -p 2222 molecubes@localhost` from the workstation.
 
 ## 6. What is deliberately not done
 
-- **No generic `tunnel-host` op.** Kept Molecubes-specific because the process was unproven. If a
-  second machine needs a tunnel (the MRI acquisition machine is the likely candidate), **rework this
-  op into a config-driven `tunnel-host` — do not copy it into a second equipment-specific op.**
+- ~~**No generic `tunnel-host` op.**~~ **Done 2026-08-10** — reworked into `lib\tunnel-engine.ps1`
+  when the second consumer appeared (see the update note at the top). The MRI acquisition machine
+  would now be a third instance file + conf, nothing more.
 - **No forwarder allow-list.** `--allow` exists but the box's egress address is unknown (NI-RA-03).
 - **Password auth still enabled** on WSL sshd for interactive use.
 

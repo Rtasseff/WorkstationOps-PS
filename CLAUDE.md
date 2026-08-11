@@ -44,10 +44,29 @@ wasted trip to the acquisition box. Several of those traps produce *misleading* 
 like authentication failures and are not), so diagnosing from first principles tends to go wrong.
 Read it before debugging anything tunnel-related.
 
+## Tunnel instances share an engine
+
+`molecubes-tunnel` and `omero-web-forward` are thin instance definitions over
+**`lib\tunnel-engine.ps1`** (generalized 2026-08-10). An instance op file sets
+header vars, dot-sources its conf, assigns the engine's config contract, then
+dot-sources the engine -- which defines all five Op-* functions. Rules:
+
+- **Assign EVERY contract input in every instance file, even empty ones**
+  (`''` / `$false` / `@()`): ops.ps1 dot-sources all ops into one session for
+  aggregate status, so an unassigned variable inherits the previous op's value.
+- **Never probe by bare TCP connect** -- the forwarder accepts connections with
+  a dead upstream. Probes are `ssh-banner` or `http`; add new kinds to
+  `Test-UpstreamProbe`, not ad hoc.
+- **Keepalives are tagged** via `env WSOPS_TUNNEL=<op> sleep infinity`. Do not
+  "simplify" to `sh -c "... # tag"` -- wsl.exe/Start-Process quoting splits the
+  string and the keepalive exits within seconds (found the hard way 2026-08-10).
+- **One listen port, one instance.** Claim ports in README.md "Tunnel port
+  allocation"; Op-Run refuses foreign-bound ports.
+
 ## Service ops (long-running) vs batch ops
 
-`molecubes-tunnel` is the first op whose `Op-Run` **never returns** — it supervises a
-persistent landing pad. Consequences:
+The tunnel instances are ops whose `Op-Run` **never returns** — each supervises a
+persistent landing pad / forward. Consequences:
 
 - It defines an optional **`Op-Stop`**, dispatched by `.\ops stop <op>`. `Op-Stop` is
   optional by design; batch ops omit it and `stop` says so rather than failing.

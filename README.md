@@ -15,6 +15,7 @@ aggregate.
 | `vps-backup` | Daily @ 03:00 | Pull latest ReDIB DB + files backups from the VPS to `X:\backup\ReDIB-Portal` |
 | `finder-refresh` | Daily @ 03:00 | Rebuild the gjesus3 researcher Finder index (global + per-project `index.html`) from the registry |
 | `molecubes-tunnel` | At logon (long-running service) | Windows-side landing pad for the reverse SSH tunnel from the Molecubes PET/CT acquisition box |
+| `omero-web-forward` | At logon (long-running service) | Forward Windows port 4080 to OMERO.web inside WSL for the gjesus3 researcher pilot |
 
 ### wsl-backup
 
@@ -69,10 +70,11 @@ molecubes-tunnel` (or Ctrl-C in its window).
   `wslrelay.exe` mirrors WSL's sshd onto `127.0.0.1:2200`, so a loopback probe reports
   OK even when every forwarder is dead, and a bare TCP connect succeeds even when the
   upstream is gone
-- **Self-healing:** the supervisor holds WSL awake with a `sleep infinity` keepalive
-  (without it the VM idles out, taking sshd with it while the forwarders keep
-  answering), re-reads the WSL IP on every rebuild (it is reassigned each WSL boot),
-  and rebuilds the whole set if the banner stops arriving
+- **Self-healing:** the supervisor holds WSL awake with a tagged keepalive
+  (`env WSOPS_TUNNEL=<op> sleep infinity` -- the tag lets each tunnel instance find
+  its own; without a keepalive the VM idles out, taking sshd with it while the
+  forwarders keep answering), re-reads the WSL IP on every rebuild (it is reassigned
+  each WSL boot), and rebuilds the whole set if the banner stops arriving
 - **Scheduled at logon** (`WorkstationOps-MolecubesTunnel`), because the landing pad being
   down is the one failure with **no recovery** from inside the acquisition box's
   restricted-access room — the operator gets a single entry per visit and cannot step
@@ -105,14 +107,50 @@ timeout). Exit code 0 means safe to travel.
 `setup\harden-tunnel-key.sh` is the companion: run it after the box pushes its key with
 `ssh-copy-id`, which always writes an unrestricted entry.
 
-**If a second machine ever needs a tunnel — do not add a second op.** The landing pad
-is equipment-agnostic; only the far end is Molecubes. The MRI acquisition machine is
-the likely next candidate (gjesus3-pilot records that it is also not
-network-accessible). When that happens, or once `molecubes-tunnel` is proven and we
-choose to prepare for it, **rework this op into a generic config-driven `tunnel-host`
-and share it** — rather than copying it per instrument. It was kept specific only
-because the process was not yet proven end to end and specificity was cheaper than a
-premature abstraction.
+**Generalized 2026-08-10** — the second consumer appeared (the gjesus3 OMERO pilot),
+so the op's mechanics were reworked into **`lib\tunnel-engine.ps1`**, exactly as the
+note that used to stand here required (rework, not copy). An op file is now a thin
+instance definition: header vars + `config\<op>.conf.ps1` + probe choice, then a
+dot-source of the engine, which provides Op-Run/Stop/Status/Verify/ScheduleSpec.
+Instances share the engine and `lib\tcp_forward.py` but never processes: each has its
+own supervisor, lock, logs, scheduled task, tagged WSL keepalive, and forwarders
+(matched by script path **and** listen ports), so stopping one cannot take down
+another. Probes are per-instance (`ssh-banner` or `http`); there is deliberately no
+bare-TCP-connect probe (the forwarder accepts connections even when its upstream is
+dead). Runtime behavior of `molecubes-tunnel` was preserved and re-verified 9/9 by
+`setup\test-tunnel-path.sh` after the rework. The MRI acquisition machine remains the
+likely next instance.
+
+### Tunnel port allocation
+
+One Windows listen port belongs to exactly one instance; `Op-Run` refuses a port that
+is already bound by a foreign process, and `Op-Verify` reports it as a collision.
+Claim ports here before adding an instance.
+
+| Port | Instance | Purpose |
+|------|----------|---------|
+| 2200 | `molecubes-tunnel` | reverse-SSH landing pad (primary) |
+| 8000 | `molecubes-tunnel` | fallback from the Django-era known-good port |
+| 4080 | `omero-web-forward` | OMERO.web for the gjesus3 pilot |
+
+### omero-web-forward
+
+Second instance of the tunnel engine: a plain HTTP forward,
+`0.0.0.0:4080 -> OMERO.web` in WSL, so researchers on the hardwired network can
+browse the gjesus3 OMERO pilot at `http://10.10.2.195:4080/`.
+
+- **Probe is `http`:** reads a real `HTTP/` status line from
+  `/webclient/login/` through the forwarder -- same rigor as the SSH banner
+- **This op does not manage the containers.** The OMERO stack (docker-compose in
+  WSL) belongs to the omero-trial repo
+  (`~/projects/miniProjects/202608_omero-trial` in WSL, github `Rtasseff/omero-trial`);
+  the pilot's runbook is `gjesus3-tools\06_omero_trial_runbook.md`. If the stack is
+  down this op reports FAIL and keeps probing until it returns
+- **Scheduled at logon** (`WorkstationOps-OmeroWebForward`), same service-op contract
+  as molecubes-tunnel (`PT0S`, user-scoped trigger, 1-minute delay)
+- When the pilot ends: `.\ops unschedule omero-web-forward`, `.\ops stop
+  omero-web-forward`, delete `operations\omero-web-forward.ps1` +
+  `config\omero-web-forward.conf.ps1`, and free port 4080 in the table above
 
 ## Quick start
 
