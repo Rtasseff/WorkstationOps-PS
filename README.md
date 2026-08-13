@@ -162,6 +162,29 @@ browse the gjesus3 OMERO pilot at `http://10.10.2.195:4080/`.
 
 ### xnat-web-forward
 
+Third instance of the tunnel engine: a plain HTTP forward,
+`0.0.0.0:4081 -> XNAT nginx` in WSL, so researchers on the hardwired network can
+reach the gjesus3 XNAT trial at `http://10.10.2.195:4081/`. This is the DICOM arm
+of the image-server spike; `omero-web-forward` is the microscopy arm.
+
+- **Probe is `http`:** reads a real `HTTP/` status line from
+  `/app/template/Login.vm` through the forwarder
+- **This op does not manage the containers.** The XNAT stack (docker-compose in
+  WSL) belongs to the xnat-trial repo
+  (`~/projects/miniProjects/202608_xnat-trial` in WSL, github `Rtasseff/xnat-trial`);
+  the trial's runbook is `gjesus3-tools\08_xnat_trial_runbook.md`. If the stack is
+  down this op reports FAIL and keeps probing until it returns
+- **Health interval is 30s**, same reasoning as omero-web-forward: humans in a
+  browser rather than a scarce physical visit, so a 30s detection gap is fine and
+  keeps probe chatter low
+- **Scheduled at logon** (`WorkstationOps-XnatWebForward`), same service-op contract
+  as the other instances (`PT0S`, user-scoped trigger, 1-minute delay)
+- When the trial ends: `.\ops unschedule xnat-web-forward`, `.\ops stop
+  xnat-web-forward`, delete `operations\xnat-web-forward.ps1` +
+  `config\xnat-web-forward.conf.ps1`, and free port 4081 in the table above
+
+### xnat-web-forward
+
 Third instance of the tunnel engine, added 2026-08-11: a plain HTTP forward,
 `0.0.0.0:4081 -> XNAT nginx` in WSL, so researchers on the hardwired network can
 browse the gjesus3 XNAT trial (the DICOM arm of the image-server spike) at
