@@ -17,6 +17,130 @@ if (-not $OpsRoot) {
 $SshExe = Join-Path $env:SystemRoot "System32\OpenSSH\ssh.exe"
 $ScpExe = Join-Path $env:SystemRoot "System32\OpenSSH\scp.exe"
 
+# Applied to every ssh AND scp call. ServerAlive* is the first line of defence:
+# it makes ssh give up ~15s after the peer stops answering at ANY phase, whereas
+# ConnectTimeout stops applying once the connection is set up. Belt and braces
+# with Invoke-BoundedNative below -- the watchdog is the guarantee, these just
+# let the common case exit cleanly with a real exit code instead of being killed.
+$SshCommonOpts = @(
+    '-o', 'BatchMode=yes'
+    '-o', 'ConnectTimeout=10'
+    '-o', 'ServerAliveInterval=5'
+    '-o', 'ServerAliveCountMax=3'
+)
+
+# -- Bounded native execution ------------------------------------------------
+
+function Format-NativeArg {
+    param([string]$Value)
+    # Quote one argument for the Windows CRT parser that ssh.exe/scp.exe use.
+    # Start-Process takes a single argument STRING, so the quoting is ours to do.
+    # The remote commands here carry spaces, pipes and single quotes -- all inert
+    # once the argument is wrapped -- but embedded double quotes and trailing
+    # backslashes are not, so handle those explicitly.
+    if ([string]::IsNullOrEmpty($Value)) { return '""' }
+    if ($Value -notmatch '[\s"]') { return $Value }
+    $escaped = $Value -replace '(\\*)"', '$1$1\"'
+    $escaped = $escaped -replace '(\\+)$', '$1$1'
+    return '"' + $escaped + '"'
+}
+
+function Invoke-BoundedNative {
+    param(
+        [Parameter(Mandatory)][string]$FilePath,
+        [Parameter(Mandatory)][string[]]$ArgumentList,
+        [Parameter(Mandatory)][string]$What,
+        [int]$TimeoutSeconds = 60,
+        [switch]$Quiet
+    )
+    # Run a native command under a wall-clock cap that ALWAYS returns.
+    #
+    # Why this exists: on 2026-08-12 and 2026-08-13 the probe
+    # 'ssh -o BatchMode=yes -o ConnectTimeout=10 vps true' blocked for 32 hours.
+    # ConnectTimeout bounds connection setup only, so a path that dies after that
+    # leaves ssh parked on a socket read with no timeout of any kind. Task
+    # Scheduler then killed the supervisor at ExecutionTimeLimit -- which unwinds
+    # nothing, so every Set-VpsPending branch was skipped and two missed backups
+    # produced no evidence whatsoever. Bounding the call is what turns that into
+    # an ordinary, reportable failure.
+    #
+    # Built on ProcessStartInfo rather than Start-Process for two reasons found
+    # by testing this file:
+    #   1. Start-Process -PassThru does NOT populate ExitCode on Windows
+    #      PowerShell 5.1 when either output stream is redirected. HasExited
+    #      reads True and ExitCode reads empty, so every success looked like a
+    #      failure. This is the documented 5.1 behaviour, not a transient.
+    #   2. CreateNoWindow means a stuck child cannot inherit and hold a console
+    #      window open -- which is exactly how the 2026-08-12 orphan stayed on
+    #      screen for 32 hours after its parent was killed.
+    #
+    # Both streams are drained with ReadToEndAsync BEFORE waiting. Reading them
+    # in sequence would deadlock the moment either pipe buffer filled, which
+    # would relocate the hang rather than remove it.
+    #
+    # -Quiet is for Op-Verify, which must not print to host.
+
+    $argLine = ($ArgumentList | ForEach-Object { Format-NativeArg $_ }) -join ' '
+
+    $timedOut = $false
+    $exitCode = -1
+    $rawOut   = ''
+    $rawErr   = ''
+    $proc     = $null
+
+    try {
+        $psi = New-Object System.Diagnostics.ProcessStartInfo
+        $psi.FileName               = $FilePath
+        $psi.Arguments              = $argLine
+        $psi.UseShellExecute        = $false
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError  = $true
+        $psi.CreateNoWindow         = $true
+
+        $proc = [System.Diagnostics.Process]::Start($psi)
+
+        # Start both reads first; they complete when the pipes close.
+        $outTask = $proc.StandardOutput.ReadToEndAsync()
+        $errTask = $proc.StandardError.ReadToEndAsync()
+
+        if ($proc.WaitForExit($TimeoutSeconds * 1000)) {
+            $exitCode = $proc.ExitCode
+        } else {
+            $timedOut = $true
+            if (-not $Quiet) {
+                Write-Log -Level ERROR -Message "$What exceeded ${TimeoutSeconds}s; killing pid $($proc.Id)."
+            }
+            try { $proc.Kill() } catch { }
+            try { [void]$proc.WaitForExit(5000) } catch { }
+        }
+
+        # Bounded so a wedged pipe cannot reintroduce the hang we just removed.
+        if ($outTask.Wait(5000)) { $rawOut = $outTask.Result }
+        if ($errTask.Wait(5000)) { $rawErr = $errTask.Result }
+    } catch {
+        if (-not $Quiet) {
+            Write-Log -Level ERROR -Message "$What could not be started: $_"
+        }
+    } finally {
+        if ($proc) { try { $proc.Dispose() } catch { } }
+    }
+
+    return @{
+        TimedOut = $timedOut
+        ExitCode = $exitCode
+        StdOut   = @(ConvertTo-OutputLines $rawOut)
+        StdErr   = @(ConvertTo-OutputLines $rawErr)
+    }
+}
+
+function ConvertTo-OutputLines {
+    param([string]$Text)
+    # Match what '& native' used to hand back: an array of lines, no trailing
+    # blank. Callers join or index these, so an empty string must yield @().
+    if ([string]::IsNullOrEmpty($Text)) { return @() }
+    return @($Text -split "`r`n|`n|`r" | Where-Object { $_ -ne '' })
+}
+
 # -- Pending flag helpers ----------------------------------------------------
 
 function Get-VpsPendingPath { return (Join-Path $OpsRoot "logs\$OpName.pending") }
@@ -45,10 +169,17 @@ function Get-RemoteLatest {
     )
     # Returns @{ Name=<filename>; Size=<bytes> } or $null if no match
     $remoteCmd = "ls -1 $VPS_REMOTE_DIR/redib_${Kind}_*.${Ext} 2>/dev/null | sort | tail -1 | xargs -r stat -c '%n %s'"
-    $out = & $SshExe -o BatchMode=yes $VPS_HOST $remoteCmd 2>$null
-    if ($LASTEXITCODE -ne 0) {
-        throw "ssh to '$VPS_HOST' failed (exit $LASTEXITCODE) while listing kind '$Kind'"
+    $r = Invoke-BoundedNative -FilePath $SshExe `
+            -ArgumentList (@($SshCommonOpts) + @($VPS_HOST, $remoteCmd)) `
+            -What "Remote listing for kind '$Kind'" `
+            -TimeoutSeconds $SSH_CMD_TIMEOUT_SECONDS
+    if ($r.TimedOut) {
+        throw "ssh to '$VPS_HOST' timed out after ${SSH_CMD_TIMEOUT_SECONDS}s while listing kind '$Kind'"
     }
+    if ($r.ExitCode -ne 0) {
+        throw "ssh to '$VPS_HOST' failed (exit $($r.ExitCode)) while listing kind '$Kind'"
+    }
+    $out = $r.StdOut
     if (-not $out) { return $null }
     $line = ($out | Select-Object -Last 1).ToString().Trim()
     if (-not $line) { return $null }
@@ -61,8 +192,14 @@ function Get-RemoteLatest {
 }
 
 function Test-SshReachable {
-    & $SshExe -o BatchMode=yes -o ConnectTimeout=10 $VPS_HOST 'true' 2>$null | Out-Null
-    return ($LASTEXITCODE -eq 0)
+    param([switch]$Quiet)
+    # This exact probe is what hung for 32 hours on 2026-08-12. It is now capped.
+    $r = Invoke-BoundedNative -FilePath $SshExe `
+            -ArgumentList (@($SshCommonOpts) + @($VPS_HOST, 'true')) `
+            -What "SSH reachability probe to '$VPS_HOST'" `
+            -TimeoutSeconds $SSH_PROBE_TIMEOUT_SECONDS `
+            -Quiet:$Quiet
+    return ((-not $r.TimedOut) -and ($r.ExitCode -eq 0))
 }
 
 # -- Local helpers -----------------------------------------------------------
@@ -124,6 +261,17 @@ function Op-Status {
         }
     }
 
+    # Freshness. A daily pull that quietly stops is this op's most likely failure
+    # and its hardest to notice: on 2026-08-12 and -13 the run died inside the ssh
+    # probe, left no pending flag, and status still read "ok (2d ago)" while
+    # nothing was being backed up. Age alone was already on screen -- what was
+    # missing is that anything called it wrong.
+    $staleAfter = if ($null -ne $STALE_AFTER_HOURS) { $STALE_AFTER_HOURS } else { 36 }
+    $stale = $false
+    if ($driveOk -and $freshest) {
+        $stale = (((Get-Date) - $freshest).TotalHours -gt $staleAfter)
+    }
+
     $brief = if (-not $driveOk) {
         "${OpName}: drive-offline"
     } elseif ($pending) {
@@ -131,7 +279,7 @@ function Op-Status {
     } elseif ($freshest) {
         $age = (Get-Date) - $freshest
         $ageStr = if ($age.TotalDays -ge 1) { "$([int]$age.TotalDays)d ago" } else { "today" }
-        "${OpName}: ok ($ageStr)"
+        if ($stale) { "${OpName}: STALE ($ageStr)" } else { "${OpName}: ok ($ageStr)" }
     } else {
         "${OpName}: never"
     }
@@ -161,6 +309,8 @@ function Op-Status {
     if ($pending) {
         $reason = Get-VpsPendingReason
         $lines.Add("Backup status:         OVERDUE ($reason) -- run '.\ops run $OpName'")
+    } elseif ($stale) {
+        $lines.Add("Backup status:         STALE -- newest backup is over ${staleAfter}h old, so the daily pull is not landing")
     } else {
         $lines.Add("Backup status:         OK")
     }
@@ -176,8 +326,9 @@ function Op-Status {
     return @{
         Name    = $OpName
         Label   = $OpLabel
-        Ok      = ($driveOk -and -not $pending -and $allHaveLatest)
+        Ok      = ($driveOk -and -not $pending -and $allHaveLatest -and -not $stale)
         Pending = $pending
+        Stale   = $stale
         Brief   = $brief
         Lines   = $lines.ToArray()
     }
@@ -216,19 +367,24 @@ function Op-Verify {
     }
 
     if ($allOk -and (Test-Path $SshExe)) {
-        if (Test-SshReachable) {
+        # -Quiet throughout: Op-Verify returns lines, it does not print.
+        if (Test-SshReachable -Quiet) {
             $lines.Add("[PASS] SSH to '$VPS_HOST' works non-interactively")
 
             # Try listing the remote dir
-            $lsOut = & $SshExe -o BatchMode=yes $VPS_HOST "test -d $VPS_REMOTE_DIR && echo ok" 2>$null
-            if ($LASTEXITCODE -eq 0 -and ($lsOut -join '').Trim() -eq 'ok') {
+            $ls = Invoke-BoundedNative -FilePath $SshExe `
+                    -ArgumentList (@($SshCommonOpts) + @($VPS_HOST, "test -d $VPS_REMOTE_DIR && echo ok")) `
+                    -What "Remote directory check" `
+                    -TimeoutSeconds $SSH_CMD_TIMEOUT_SECONDS `
+                    -Quiet
+            if ((-not $ls.TimedOut) -and $ls.ExitCode -eq 0 -and (($ls.StdOut -join '').Trim() -eq 'ok')) {
                 $lines.Add("[PASS] Remote directory exists: $VPS_REMOTE_DIR")
             } else {
                 $lines.Add("[FAIL] Remote directory not accessible: $VPS_REMOTE_DIR")
                 $allOk = $false
             }
         } else {
-            $lines.Add("[FAIL] SSH to '$VPS_HOST' failed (check ~/.ssh/config alias, key, and network)")
+            $lines.Add("[FAIL] SSH to '$VPS_HOST' failed or timed out (check ~/.ssh/config alias, key, and network)")
             $allOk = $false
         }
     }
@@ -299,6 +455,18 @@ function Op-Run {
             Write-Log -Level ERROR -Message "Could not acquire lock. Another run may be in progress."
             exit 1
         }
+    }
+
+    # Flag the run as unfinished BEFORE anything that can block. Task Scheduler
+    # kills this process at ExecutionTimeLimit without unwinding it -- no catch,
+    # no finally, none of the Set-VpsPending calls below ever run -- so writing
+    # the flag up front is the only way a killed run leaves evidence at all. The
+    # 2026-08-12 and -13 runs both died inside the reachability probe and
+    # reported nothing. A clean failure path overwrites this with its own reason;
+    # success clears it.
+    $priorReason = if (Test-VpsPending) { Get-VpsPendingReason } else { $null }
+    if ($Scheduled -and -not $DryRun) {
+        Set-VpsPending -Reason "run-did-not-finish (started $(Get-Date -Format 'yyyy-MM-dd HH:mm'))"
     }
 
     $anyFailure = $false
@@ -372,16 +540,20 @@ function Op-Run {
         $remoteSrc = "${VPS_HOST}:$VPS_REMOTE_DIR/$remoteName"
         Write-Log -Level INFO -Message "Copying $remoteSrc -> $localPath"
 
-        # Run scp as native command; capture all streams to avoid PowerShell
-        # treating stderr as a terminating error. -p omitted: NTFS doesn't
-        # support POSIX mode bits and scp's post-transfer chmod would fail.
-        $scpOutput = & $ScpExe -o BatchMode=yes -q $remoteSrc $partialPath 2>&1
-        $scpExit = $LASTEXITCODE
-        if ($scpOutput) {
-            foreach ($line in $scpOutput) { Write-Log -Level INFO -Message "scp: $line" }
+        # Run scp under the same wall-clock cap as ssh -- a transfer that stalls
+        # mid-stream hangs exactly as readily as the probe did, and here it would
+        # do so holding a .partial file. -p omitted: NTFS doesn't support POSIX
+        # mode bits and scp's post-transfer chmod would fail.
+        $scp = Invoke-BoundedNative -FilePath $ScpExe `
+                -ArgumentList (@($SshCommonOpts) + @('-q', $remoteSrc, $partialPath)) `
+                -What "scp of '$remoteName'" `
+                -TimeoutSeconds $SCP_TIMEOUT_SECONDS
+        foreach ($line in (@($scp.StdOut) + @($scp.StdErr))) {
+            if ($line) { Write-Log -Level INFO -Message "scp: $line" }
         }
-        if ($scpExit -ne 0) {
-            Write-Log -Level ERROR -Message "scp failed (exit $scpExit) for '$remoteName'"
+        if ($scp.TimedOut -or $scp.ExitCode -ne 0) {
+            $scpWhy = if ($scp.TimedOut) { "timed out after ${SCP_TIMEOUT_SECONDS}s" } else { "exit $($scp.ExitCode)" }
+            Write-Log -Level ERROR -Message "scp failed ($scpWhy) for '$remoteName'"
             if (Test-Path $partialPath) { Remove-Item $partialPath -Force -ErrorAction SilentlyContinue }
             $anyFailure = $true
             continue
@@ -418,7 +590,12 @@ function Op-Run {
     } else {
         if (Test-VpsPending) {
             Clear-VpsPending
-            Write-Log -Level INFO -Message "Cleared pending flag."
+            # Only worth a line if a PREVIOUS run left it: this run sets the flag
+            # on itself at the start, so an unconditional message would fire every
+            # time and mean nothing.
+            if ($priorReason) {
+                Write-Log -Level INFO -Message "Cleared pending flag from a previous run ($priorReason)."
+            }
         }
     }
 

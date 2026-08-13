@@ -139,6 +139,7 @@ Claim ports here before adding an instance.
 | 2200 | `molecubes-tunnel` | reverse-SSH landing pad (primary) |
 | 8000 | `molecubes-tunnel` | fallback from the Django-era known-good port |
 | 4080 | `omero-web-forward` | OMERO.web for the gjesus3 pilot |
+| 4081 | `xnat-web-forward` | XNAT for the gjesus3 DICOM trial |
 
 ### omero-web-forward
 
@@ -158,6 +159,26 @@ browse the gjesus3 OMERO pilot at `http://10.10.2.195:4080/`.
 - When the pilot ends: `.\ops unschedule omero-web-forward`, `.\ops stop
   omero-web-forward`, delete `operations\omero-web-forward.ps1` +
   `config\omero-web-forward.conf.ps1`, and free port 4080 in the table above
+
+### xnat-web-forward
+
+Third instance of the tunnel engine, added 2026-08-11: a plain HTTP forward,
+`0.0.0.0:4081 -> XNAT nginx` in WSL, so researchers on the hardwired network can
+browse the gjesus3 XNAT trial (the DICOM arm of the image-server spike) at
+`http://10.10.2.195:4081/`.
+
+- **Probe is `http`:** reads a real `HTTP/` status line from
+  `/app/template/Login.vm` (the XNAT login page) through the forwarder
+- **This op does not manage the containers.** The XNAT stack (docker-compose in
+  WSL) belongs to the xnat-trial repo
+  (`~/projects/miniProjects/202608_xnat-trial` in WSL, github `Rtasseff/xnat-trial`);
+  the trial's runbook is `gjesus3-tools\08_xnat_trial_runbook.md`. If the stack is
+  down this op reports FAIL and keeps probing until it returns
+- **Scheduled at logon** (`WorkstationOps-XnatWebForward`), same service-op contract
+  as the other instances (`PT0S`, user-scoped trigger, 1-minute delay)
+- When the trial ends: `.\ops unschedule xnat-web-forward`, `.\ops stop
+  xnat-web-forward`, delete `operations\xnat-web-forward.ps1` +
+  `config\xnat-web-forward.conf.ps1`, and free port 4081 in the table above
 
 ## Quick start
 
@@ -238,10 +259,31 @@ wsl -d Ubuntu -- whoami
 | `$VPS_BACKUP_KINDS` | db + files | Array of `@{Kind; Ext; Label}` entries to pull |
 | `$BACKUP_DEST` | `X:\backup\ReDIB-Portal` | Local destination |
 | `$BACKUP_DRIVE` | `X:\` | Drive to check for availability |
+| `$SSH_PROBE_TIMEOUT_SECONDS` | `20` | Wall-clock cap on the reachability probe |
+| `$SSH_CMD_TIMEOUT_SECONDS` | `30` | Wall-clock cap on each remote listing |
+| `$SCP_TIMEOUT_SECONDS` | `120` | Wall-clock cap on each file transfer |
+| `$STALE_AFTER_HOURS` | `36` | Age at which the newest backup is reported STALE |
 | `$LOG_RETENTION_DAYS` | `90` | Delete logs older than this |
 | `$TASK_NAME` | `WorkstationOps-vps-backup` | Task Scheduler job name |
 
 Retention is always "keep 1 per kind" for vps-backup — IT manages historical retention on the destination drive, so local pruning avoids duplicating that.
+
+**Every ssh and scp call is bounded, and a killed run leaves evidence.** Both were
+added on 2026-08-13 after two backups went missing without a trace. `ssh`'s own
+`-o ConnectTimeout` covers connection *setup* only: the reachability probe
+established a connection, the path died, and ssh sat on the socket for 32 hours
+against a 10-second setting. Task Scheduler then killed the run at its
+`ExecutionTimeLimit`, which unwinds nothing — so no `Set-VpsPending` branch ran, no
+notification fired, and `.\ops status` still read `ok`. Three defences now:
+
+- `Invoke-BoundedNative` runs every ssh/scp under a wall-clock cap and kills the
+  child on expiry. Keep the caps summing well under `ExecutionTimeLimit` (`PT10M`),
+  or the scheduler kills the op before it can report why it failed
+- `-o ServerAliveInterval=5 -o ServerAliveCountMax=3` on every call, so ssh usually
+  gives up on its own with a real exit code rather than being killed
+- The pending flag is written *before* the first call that can block and cleared on
+  success, so a killed run shows up as `OVERDUE`. Independently, a newest backup
+  older than `$STALE_AFTER_HOURS` reports `STALE` and fails `.\ops status`
 
 ### SSH setup for vps-backup
 
