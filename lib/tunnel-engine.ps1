@@ -194,10 +194,15 @@ function Get-ForeignListener {
     # bound to a listen port (another instance misconfigured onto it, or
     # unrelated software). Returns the owning PID, or $null if the port is
     # free / owned by us.
+    # Loopback-only listeners are ignored: wslrelay.exe mirrors every WSL
+    # service onto 127.0.0.1/::1, and a loopback socket cannot take the LAN
+    # traffic our 0.0.0.0 forwarder serves. Counting it blocked every start
+    # after a reboot, once WSL services were up before the forwarders.
     param([Parameter(Mandatory)][int]$Port)
     $ours = @(Get-ForwarderProcesses | ForEach-Object { $_.ProcessId })
     $conns = @(Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue)
     foreach ($c in $conns) {
+        if ($c.LocalAddress -in '127.0.0.1', '::1') { continue }
         if ($ours -notcontains $c.OwningProcess) { return $c.OwningProcess }
     }
     return $null
