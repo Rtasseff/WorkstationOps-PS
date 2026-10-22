@@ -140,6 +140,7 @@ Claim ports here before adding an instance.
 | 8000 | `molecubes-tunnel` | fallback from the Django-era known-good port |
 | 4080 | `omero-web-forward` | OMERO.web for the gjesus3 pilot |
 | 4081 | `xnat-web-forward` | XNAT for the gjesus3 DICOM trial |
+| 4082 | `oadata-web-forward` | OAData web app |
 
 ### omero-web-forward
 
@@ -183,25 +184,26 @@ of the image-server spike; `omero-web-forward` is the microscopy arm.
   xnat-web-forward`, delete `operations\xnat-web-forward.ps1` +
   `config\xnat-web-forward.conf.ps1`, and free port 4081 in the table above
 
-### xnat-web-forward
+### oadata-web-forward
 
-Third instance of the tunnel engine, added 2026-08-11: a plain HTTP forward,
-`0.0.0.0:4081 -> XNAT nginx` in WSL, so researchers on the hardwired network can
-browse the gjesus3 XNAT trial (the DICOM arm of the image-server spike) at
-`http://10.10.2.195:4081/`.
+Fourth instance of the tunnel engine, added 2026-10-22: a plain HTTP forward,
+`0.0.0.0:4082 -> oa-web` in WSL, so colleagues on the hardwired network can use
+the OAData web app at `http://10.10.2.195:4082/`.
 
-- **Probe is `http`:** reads a real `HTTP/` status line from
-  `/app/template/Login.vm` (the XNAT login page) through the forwarder
-- **This op does not manage the containers.** The XNAT stack (docker-compose in
-  WSL) belongs to the xnat-trial repo
-  (`~/projects/miniProjects/202608_xnat-trial` in WSL, github `Rtasseff/xnat-trial`);
-  the trial's runbook is `gjesus3-tools\08_xnat_trial_runbook.md`. If the stack is
-  down this op reports FAIL and keeps probing until it returns
-- **Scheduled at logon** (`WorkstationOps-XnatWebForward`), same service-op contract
-  as the other instances (`PT0S`, user-scoped trigger, 1-minute delay)
-- When the trial ends: `.\ops unschedule xnat-web-forward`, `.\ops stop
-  xnat-web-forward`, delete `operations\xnat-web-forward.ps1` +
-  `config\xnat-web-forward.conf.ps1`, and free port 4081 in the table above
+- **Probe is `http`:** reads a real `HTTP/` status line from `/health` through the
+  forwarder. `/health` is unauthenticated and never redirects (200, or 503 when the
+  app's tracker DB is unreadable -- either way the forward itself is up)
+- **This op does not manage the app.** OAData (`~/projects/OAData` in WSL) runs as
+  the lingering systemd user service `oa-web` (`oa web --host 0.0.0.0 --port 4082`);
+  WSL side is `systemctl --user status|restart oa-web`. If the app is down this op
+  reports FAIL and keeps probing until it returns
+- **Same port on both sides (4082):** wslrelay also mirrors it onto Windows
+  loopback, which the port-collision guard ignores
+- **Scheduled at logon** (`WorkstationOps-OADataWebForward`), same service-op
+  contract as the other instances (`PT0S`, user-scoped trigger, 1-minute delay)
+- To retire it: `.\ops unschedule oadata-web-forward`, `.\ops stop
+  oadata-web-forward`, delete `operations\oadata-web-forward.ps1` +
+  `config\oadata-web-forward.conf.ps1`, and free port 4082 in the table above
 
 ## Quick start
 
