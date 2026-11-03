@@ -287,8 +287,17 @@ function Op-Run {
         Write-Log -Level INFO -Message "Running generator: $PYTHON $GENERATOR --nas-root $NAS_UNC --per-project"
 
         # Capture all streams; the generator prints progress per index written.
-        $genOutput = & $PYTHON $GENERATOR --nas-root $NAS_UNC --per-project 2>&1
-        $genExit = $LASTEXITCODE
+        # ops.ps1 sets Stop, and under Stop PS 5.1 aborts on a native command's first
+        # stderr line, which would skip the pending flag and the notification below.
+        # A Python traceback has to reach them.
+        $savedPreference = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        try {
+            $genOutput = & $PYTHON $GENERATOR --nas-root $NAS_UNC --per-project 2>&1
+            $genExit = $LASTEXITCODE
+        } finally {
+            $ErrorActionPreference = $savedPreference
+        }
 
         foreach ($line in $genOutput) {
             Write-Log -Level INFO -Message "gen: $line"
