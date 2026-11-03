@@ -7,8 +7,8 @@
 # and the health signal; gjesus3-pilot owns the generator (how a Finder index is
 # built from the registry). If you ever MOVE the gjesus3-pilot repo on this
 # workstation, update $GJESUS3_REPO below -- it is the ONLY line here that needs
-# to change. '.\ops verify finder-refresh' checks this path and fails loudly if
-# it is wrong.
+# to change (config\gjesus3-relink.conf.ps1 repeats it, so update that too).
+# '.\ops verify finder-refresh' checks this path and fails loudly if it is wrong.
 $GJESUS3_REPO   = "C:\Users\rtasseff\OneDrive - CIC biomaGUNE\projects\DataInfra\gjesus3-archive\gjesus3-pilot"
 
 # Python interpreter -- a FULL path, NOT the bare 'python' WindowsApps alias.

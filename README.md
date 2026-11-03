@@ -14,6 +14,7 @@ aggregate.
 | `wsl-backup` | Due monthly from the 1st; checked daily @ 14:00 | Full export of the Ubuntu WSL distro to `D:\backup\wsl-gold` (local secondary backup; see `D:\README.md`) |
 | `vps-backup` | Daily @ 03:00 | Pull latest ReDIB DB + files backups from the VPS to `X:\backup\ReDIB-Portal` |
 | `finder-refresh` | Daily @ 03:00 | Rebuild the gjesus3 researcher Finder index (global + per-project `index.html`) from the registry |
+| `gjesus3-relink` | Daily @ 02:30 | Create the gjesus3 project hard links a Mac sync could not make, from `registries\pending_links.csv` |
 | `molecubes-tunnel` | At logon (long-running service) | Windows-side landing pad for the reverse SSH tunnel from the Molecubes PET/CT acquisition box |
 | `omero-web-forward` | At logon (long-running service) | Forward Windows port 4080 to OMERO.web inside WSL for the gjesus3 researcher pilot |
 
@@ -50,6 +51,19 @@ An export is written as `partial-wsl-ubuntu-<date>.tar` and renamed once it has 
 - Unlike `vps-backup`, 3:00 AM is fine here: the target QNAP is always mounted and has no IT maintenance window
 - **Health signal:** `.\ops status finder-refresh` reports the published index's build time. If it is older than 30h (a missed daily run) status shows STALE; a failed scheduled run sets a pending flag and a Windows notification, both surfaced by `.\ops status`
 - If the NAS is unreachable at 03:00 the run defers cleanly (pending flag) instead of failing hard, exactly like `vps-backup` with an offline drive
+
+### gjesus3-relink
+
+The NI acquisition Mac cannot make hard links over SMB, so a sync registers each acquisition and queues its project link in `registries\pending_links.csv`. This op runs `tools\relink_pending.py` from the gjesus3-pilot repo to create them, through `\\GJESUS3\gjesus3\gjesus3-data`.
+
+- **Schedule:** daily at 02:30, so new links exist before the 03:00 `finder-refresh`. It only runs while the user is logged on, and a missed run catches up later, possibly after the refresh
+- **Unattended production writer:** Ryan confirmed nightly running directly on 2026-11-03. `$SCHEDULE_CONFIRMED` in `config\gjesus3-relink.conf.ps1` records that; while it is `$false`, `.\ops schedule` treats the op as manual
+- **Non-zero exit** means a row stayed pending or the registry lock was busy. It sets the pending flag and a Windows notification, and the next night's run retries and reminds again. Re-running is always safe
+- **NAS unreachable:** skips cleanly and sets the pending flag
+- **Old tool:** real runs refuse a `relink_pending.py` without the locked re-read, because it can lose rows queued during a sync. `--dry-run` passes through to the tool and writes nothing
+- **Status** shows open rows and the oldest `queued_datetime`, and reports STALE if an open row is older than 30h
+
+**Checking a link by hand:** use `os.path.samefile`. Through SMB a true hard link reports a link count of 1, so a count check makes it look like a copy.
 
 ### molecubes-tunnel
 
