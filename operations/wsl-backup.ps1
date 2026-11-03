@@ -190,7 +190,7 @@ function Exit-WslRunWithReminder {
 
     Write-Log -Level WARN -Message "$Detail Setting overdue flag ($Reason)."
     Set-WslPending -Reason $Reason
-    Send-Notification -Title "WSL Backup Overdue" -Message "$Detail Run '.\ops run $OpName' when convenient." -UntilDismissed
+    Send-Notification -Title "WSL Backup Overdue" -Message "$Detail Run '.\ops run $OpName' when convenient."
     Write-Log -Level INFO -Message "=== WSL Backup Deferred ==="
     exit $ExitCode
 }

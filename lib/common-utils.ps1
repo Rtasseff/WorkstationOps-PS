@@ -143,10 +143,9 @@ function Send-ToastReminder {
 function Send-Notification {
     param(
         [Parameter(Mandatory)][string]$Title,
-        [Parameter(Mandatory)][string]$Message,
-        [switch]$UntilDismissed
+        [Parameter(Mandatory)][string]$Message
     )
-    if ($UntilDismissed -and (Send-ToastReminder -Title $Title -Message $Message)) {
+    if (Send-ToastReminder -Title $Title -Message $Message) {
         return
     }
     try {

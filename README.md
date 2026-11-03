@@ -21,7 +21,7 @@ aggregate.
 
 - **Task Scheduler** fires daily at 2:00 PM, and the op does nothing unless a backup is **due**: from the 1st of the month at 2:00 PM until an export dated that month exists
 - If due and WSL is **Stopped**: exports, then restarts WSL. This is rare, because the tunnel services keep WSL running around the clock
-- If due and WSL is in **any other state**, including one that can't be read: nothing is stopped. It logs the skip, sets the overdue flag, and shows a Windows notification that stays on screen until you dismiss it. This repeats daily until an export succeeds
+- If due and WSL is in **any other state**, including one that can't be read: nothing is stopped. It logs the skip, sets the overdue flag, and shows a Windows notification. Dismissing it is fine: it comes back at 2:00 PM every day until an export succeeds
 - `.\ops status wsl-backup` shows OVERDUE from the flag or from the export dates, so it still shows if the task never fired
 - `.\ops run wsl-backup` asks before stopping a running WSL, and the default answer is no. It shows GPU use and what goes down. If the GPU is busy or can't be read, you must type the distro name. It then exports and offers to restart
 - `--force` skips the question and logs that it did, along with the GPU state
@@ -48,7 +48,7 @@ An export is written as `partial-wsl-ubuntu-<date>.tar` and renamed once it has 
 - Rebuilds the researcher Finder from the live registry: the global `registries\index.html` plus one `index.html` per project, written back to the gjesus3 NAS over UNC
 - **The generator itself lives in the separate gjesus3-pilot repo** (`tools\generate_index.py`). This op owns only the schedule, logging, and health signal; gjesus3-pilot owns how a Finder is built. The single coupling path is `$GJESUS3_REPO` in `config\finder-refresh.conf.ps1` -- `.\ops verify finder-refresh` fails loudly if that repo is moved
 - Unlike `vps-backup`, 3:00 AM is fine here: the target QNAP is always mounted and has no IT maintenance window
-- **Health signal:** `.\ops status finder-refresh` reports the published index's build time. If it is older than 30h (a missed daily run) status shows STALE; a failed scheduled run sets a pending flag and a tray notification, both surfaced by `.\ops status`
+- **Health signal:** `.\ops status finder-refresh` reports the published index's build time. If it is older than 30h (a missed daily run) status shows STALE; a failed scheduled run sets a pending flag and a Windows notification, both surfaced by `.\ops status`
 - If the NAS is unreachable at 03:00 the run defers cleanly (pending flag) instead of failing hard, exactly like `vps-backup` with an offline drive
 
 ### molecubes-tunnel
