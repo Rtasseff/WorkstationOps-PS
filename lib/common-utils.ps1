@@ -106,11 +106,49 @@ function Invoke-LogRotation {
 
 # -- Notification -------------------------------------------------------------
 
-function Send-Notification {
+function Send-ToastReminder {
+    # A tray balloon belongs to the process that raised it, and a scheduled run exits
+    # within a second. Windows itself holds a toast: this one stays on screen until
+    # dismissed and survives in the notification center if the screen is locked or Do
+    # Not Disturb is on. Returns $false if it could not be sent, so the caller can fall
+    # back to a balloon.
     param(
         [Parameter(Mandatory)][string]$Title,
         [Parameter(Mandatory)][string]$Message
     )
+    # PowerShell 5.1's registered app ID. A toast needs a registered ID to be shown.
+    $appId = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe'
+    try {
+        [void][Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime]
+        [void][Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom, ContentType = WindowsRuntime]
+
+        $safeTitle   = [System.Security.SecurityElement]::Escape($Title)
+        $safeMessage = [System.Security.SecurityElement]::Escape($Message)
+        $xml = New-Object Windows.Data.Xml.Dom.XmlDocument
+        # scenario='reminder' is what keeps it on screen, and it requires a button.
+        $xml.LoadXml("<toast scenario='reminder'><visual><binding template='ToastGeneric'><text>$safeTitle</text><text>$safeMessage</text></binding></visual><actions><action activationType='system' arguments='dismiss' content='Dismiss'/></actions></toast>")
+
+        $toast = New-Object Windows.UI.Notifications.ToastNotification $xml
+        # The same tag replaces yesterday's reminder instead of stacking a new one.
+        $toast.Group = 'WorkstationOps'
+        $toast.Tag   = if ($Title.Length -gt 60) { $Title.Substring(0, 60) } else { $Title }
+        [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($appId).Show($toast)
+        return $true
+    } catch {
+        Write-Log -Level WARN -Message "Could not send reminder toast: $_"
+        return $false
+    }
+}
+
+function Send-Notification {
+    param(
+        [Parameter(Mandatory)][string]$Title,
+        [Parameter(Mandatory)][string]$Message,
+        [switch]$UntilDismissed
+    )
+    if ($UntilDismissed -and (Send-ToastReminder -Title $Title -Message $Message)) {
+        return
+    }
     try {
         Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
 

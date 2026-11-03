@@ -16,8 +16,9 @@ captures non-obvious constraints.
 ## Testing safely
 
 - **Never run `.\ops run wsl-backup` without `--dry-run`** during
-  development. A real run terminates the user's WSL distro, takes 10-30
-  minutes, and writes a 20+ GB tar to `D:\backup\wsl-gold`.
+  development. A real run stops the user's WSL distro, killing any GPU training
+  inside it, takes about 15 minutes, and writes a 100+ GB tar to
+  `D:\backup\wsl-gold`. Never pass `--force` either: it skips the question.
 - `.\ops verify`, `.\ops status`, `.\ops status --brief`, and `.\ops run
   wsl-backup --dry-run` are all safe and fast.
 
@@ -83,6 +84,23 @@ persistent landing pad / forward. Consequences:
   `Logon` spec that omits `Time` is valid and a `Daily` one that omits it still throws.
   Logon triggers are scoped to the registering user via `UserId` — without that they
   fire on **any** user's logon.
+
+## wsl-backup must never stop WSL by accident
+
+A scheduled run killed a 25-hour GPU queue on 2026-11-01, because the running check
+had silently never matched. Keep these properties:
+
+- **`wsl.exe` list output carries a NUL after every character** when piped into PS
+  5.1. A regex then fails silently, while `-eq` and `-contains` still pass because
+  they ignore NULs, so one check can look fine while another is dead. Read list
+  output only through `Get-WslListLines`.
+- **`wsl --export` stops a running distro instead of refusing.** There is no separate
+  terminate step; don't add one, since the tunnel supervisors restart WSL within
+  seconds and would race it.
+- **Fail closed.** Only a positive `Stopped` may export unasked. `Running`, `Unknown`
+  and anything else mean a reminder on a scheduled run and a question on a manual one.
+- **The tunnels hold WSL up 24/7**, so "running" does not mean "busy", and scheduled
+  runs are effectively reminder-only by design.
 
 ## Scheduled-task gotcha
 

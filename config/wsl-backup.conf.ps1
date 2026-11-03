@@ -22,8 +22,13 @@ $LOG_RETENTION_DAYS = 90
 # Task Scheduler job name
 $TASK_NAME          = "WorkstationOps-WSL-Backup"
 
-# Task Scheduler trigger: Monthly on the 1st
-$TASK_SCHEDULE      = "Monthly"
+# Task Scheduler trigger. Fires daily so the overdue reminder repeats; the op itself
+# does nothing unless this month's export is missing (due from the 1st at $TASK_TIME).
+$TASK_SCHEDULE      = "Daily"
 
 # Time of day for the scheduled task (24h format)
 $TASK_TIME          = "14:00"
+
+# On a manual run, GPU utilization at or above this means typing the distro name is
+# required to stop WSL, rather than just answering y
+$GPU_BUSY_PERCENT   = 30

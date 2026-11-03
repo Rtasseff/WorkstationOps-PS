@@ -11,7 +11,7 @@ aggregate.
 
 | Name | Cadence | Purpose |
 |------|---------|---------|
-| `wsl-backup` | Monthly (1st @ 14:00) | Full export of the Ubuntu WSL distro to `D:\backup\wsl-gold` (local secondary backup; see `D:\README.md`) |
+| `wsl-backup` | Due monthly from the 1st; checked daily @ 14:00 | Full export of the Ubuntu WSL distro to `D:\backup\wsl-gold` (local secondary backup; see `D:\README.md`) |
 | `vps-backup` | Daily @ 03:00 | Pull latest ReDIB DB + files backups from the VPS to `X:\backup\ReDIB-Portal` |
 | `finder-refresh` | Daily @ 03:00 | Rebuild the gjesus3 researcher Finder index (global + per-project `index.html`) from the registry |
 | `molecubes-tunnel` | At logon (long-running service) | Windows-side landing pad for the reverse SSH tunnel from the Molecubes PET/CT acquisition box |
@@ -19,13 +19,18 @@ aggregate.
 
 ### wsl-backup
 
-- **Task Scheduler** fires on the 1st of each month at 2:00 PM
-- If WSL is **stopped** (rare): auto-exports silently, then restarts WSL
-- If WSL is **running** (typical): logs the skip, sets a "backup pending" flag, and pops a Windows tray notification reminding you to run `.\ops run wsl-backup` when convenient
-- `.\ops status wsl-backup` always shows whether a backup is overdue
-- Interactive `.\ops run wsl-backup` prompts before terminating WSL, exports, then offers to restart
+- **Task Scheduler** fires daily at 2:00 PM, and the op does nothing unless a backup is **due**: from the 1st of the month at 2:00 PM until an export dated that month exists
+- If due and WSL is **Stopped**: exports, then restarts WSL. This is rare, because the tunnel services keep WSL running around the clock
+- If due and WSL is in **any other state**, including one that can't be read: nothing is stopped. It logs the skip, sets the overdue flag, and shows a Windows notification that stays on screen until you dismiss it. This repeats daily until an export succeeds
+- `.\ops status wsl-backup` shows OVERDUE from the flag or from the export dates, so it still shows if the task never fired
+- `.\ops run wsl-backup` asks before stopping a running WSL, and the default answer is no. It shows GPU use and what goes down. If the GPU is busy or can't be read, you must type the distro name. It then exports and offers to restart
+- `--force` skips the question and logs that it did, along with the GPU state
 
-This gives monthly nudges without ever killing WSL unexpectedly.
+The scheduled run therefore never stops a running WSL: in practice **you start each backup** when a 15-minute outage is acceptable. A run in progress takes down everything inside WSL, including the tunnels' targets, the model service, and the XNAT and OMERO containers, and queued training does not resume on its own.
+
+An export is written as `partial-wsl-ubuntu-<date>.tar` and renamed once it has exited cleanly and passed the size check. A failed or undersized export leaves earlier exports in place, and the backup stays overdue.
+
+**History:** until 2026-11-03 the running check could never match (see `CLAUDE.md`), so every run, scheduled or manual, stopped WSL without asking. The 2026-11-01 run killed a GPU training queue that way.
 
 ### vps-backup
 
@@ -272,8 +277,9 @@ wsl -d Ubuntu -- whoami
 | `$BACKUP_RETENTION` | `1` | Keep N most recent exports |
 | `$LOG_RETENTION_DAYS` | `90` | Delete logs older than this |
 | `$TASK_NAME` | `WorkstationOps-WSL-Backup` | Task Scheduler job name |
-| `$TASK_SCHEDULE` | `Monthly` | Trigger type |
-| `$TASK_TIME` | `14:00` | Scheduled time (24h format) |
+| `$TASK_SCHEDULE` | `Daily` | Trigger type. Daily so the overdue reminder repeats; the op does nothing unless due |
+| `$TASK_TIME` | `14:00` | Scheduled time (24h format), and when a backup becomes due on the 1st |
+| `$GPU_BUSY_PERCENT` | `30` | On a manual run, GPU utilization at or above this requires typing the distro name |
 
 ### `config\vps-backup.conf.ps1`
 
@@ -346,8 +352,8 @@ The generator is pure standard library, so `finder-refresh` needs no venv or pac
 
 ## Notes
 
-- **wsl-backup export size:** Typically 8-25 GB depending on distro contents; 10-30+ minutes per run
-- **WSL termination:** `wsl --export` requires the distro to be stopped. The interactive mode always prompts before terminating. The scheduled mode never terminates — it defers and notifies instead.
+- **wsl-backup export size:** 109 GB and about 15 minutes as of 2026-11, growing with the distro
+- **WSL stop:** `wsl --export` does not refuse a running distro; it stops it. The scheduled mode exports only when the distro reads as Stopped, and otherwise reminds. The interactive mode asks first.
 - **vps-backup pull size:** Typically tiny (< 1 MB); a few seconds per run
 - **Logs:** Written to `logs\<op>-YYYY-MM-DD.log`, auto-rotated after 90 days per each op's `$LOG_RETENTION_DAYS`
 
