@@ -13,13 +13,37 @@ $OpsRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 . (Join-Path $OpsRoot "lib\common-utils.ps1")
 . (Join-Path $OpsRoot "lib\scheduled-task.ps1")
 
+# -- Instance ----------------------------------------------------------------
+# config\instance.local.ps1 (gitignored, one per machine) names this machine and
+# lists the ONLY operations it lists, runs or schedules. Without it nothing but
+# help works: a fresh clone on a new machine must never schedule the whole set.
+# Template: config\instance.example.ps1.
+
+$InstanceFile = Join-Path $OpsRoot "config\instance.local.ps1"
+if (Test-Path $InstanceFile) {
+    . $InstanceFile
+} elseif (@("help", "--help", "") -notcontains $Command) {
+    Write-Host "This machine has no config\instance.local.ps1, so ops does nothing." -ForegroundColor Red
+    Write-Host "Copy config\instance.example.ps1 to config\instance.local.ps1, set INSTANCE_NAME and ENABLED_OPS, and run again." -ForegroundColor Red
+    exit 1
+}
+if (-not $INSTANCE_NAME) { $INSTANCE_NAME = "(no instance)" }
+if (-not $ENABLED_OPS) { $ENABLED_OPS = @() }
+
+function Test-OpEnabled {
+    param([Parameter(Mandatory)][string]$Name)
+    return ($ENABLED_OPS -contains $Name)
+}
+
 # -- Operation discovery -----------------------------------------------------
 
 function Get-OpNames {
     $opsDir = Join-Path $OpsRoot "operations"
     if (-not (Test-Path $opsDir)) { return @() }
+    # Only the ops this instance enables; an explicit name still resolves (Resolve-OpFile).
     return @(Get-ChildItem -Path $opsDir -Filter "*.ps1" -ErrorAction SilentlyContinue |
-        Sort-Object Name | ForEach-Object { $_.BaseName })
+        Sort-Object Name | ForEach-Object { $_.BaseName } |
+        Where-Object { Test-OpEnabled -Name $_ })
 }
 
 function Resolve-OpFile {
@@ -40,8 +64,9 @@ function Show-Status {
     param([hashtable]$Status)
     $label = $Status.Label
     Write-Host ""
-    Write-Host "  WorkstationOps -- $label" -ForegroundColor Cyan
-    Write-Host ("  " + ("=" * (18 + $label.Length))) -ForegroundColor Cyan
+    $title = "WorkstationOps [$INSTANCE_NAME] -- $label"
+    Write-Host "  $title" -ForegroundColor Cyan
+    Write-Host ("  " + ("=" * $title.Length)) -ForegroundColor Cyan
     Write-Host ""
     foreach ($line in $Status.Lines) {
         if ($line -match '^\s*$') {
@@ -156,6 +181,10 @@ function Invoke-Schedule {
     $names = if ($target) { @($target) } else { Get-OpNames }
 
     foreach ($name in $names) {
+        if (-not (Test-OpEnabled -Name $name)) {
+            Write-Host "Operation '$name' is not enabled on this instance ($INSTANCE_NAME); not scheduled. Add it to ENABLED_OPS in config\instance.local.ps1 first." -ForegroundColor Red
+            continue
+        }
         $opFile = Resolve-OpFile -Name $name
         . $opFile
         $spec = Op-ScheduleSpec
@@ -207,6 +236,10 @@ function Invoke-Run {
         $opFile = Resolve-OpFile -Name $SubCommand
     } catch {
         Write-Host $_.Exception.Message -ForegroundColor Red
+        exit 1
+    }
+    if (-not (Test-OpEnabled -Name $SubCommand)) {
+        Write-Host "Operation '$SubCommand' is not enabled on this instance ($INSTANCE_NAME). Add it to ENABLED_OPS in config\instance.local.ps1 to run it here." -ForegroundColor Red
         exit 1
     }
     . $opFile
@@ -313,8 +346,10 @@ function Invoke-Help {
     logs [<op>] [N]           Tail latest log (default 50 lines)
     help                      Show this message
 
-  Registered operations: $opList
+  Instance:        $INSTANCE_NAME
+  Enabled here:    $opList
 
+  Instance:        config\instance.local.ps1 (gitignored; template instance.example.ps1)
   Configuration:   config\<op>.conf.ps1
   Operations:      operations\<op>.ps1
   Logs:            logs\

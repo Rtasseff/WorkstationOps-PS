@@ -30,3 +30,9 @@ $LOG_RETENTION_DAYS = 90
 # Task Scheduler job. 02:30 so new links exist before the 03:00 finder-refresh.
 $TASK_NAME      = "WorkstationOps-gjesus3-relink"
 $TASK_TIME      = "02:30"
+
+# -- Per-machine overrides ---------------------------------------------------
+# config\instance.local.ps1 (gitignored) may reset any value above for this
+# machine. It is read last, so it wins. See config\instance.example.ps1.
+$InstanceOverrides = Join-Path $OpsRoot "config\instance.local.ps1"
+if (Test-Path $InstanceOverrides) { . $InstanceOverrides }

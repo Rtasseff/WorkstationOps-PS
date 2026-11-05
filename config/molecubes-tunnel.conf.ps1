@@ -34,3 +34,9 @@ $HEALTH_INTERVAL_SECONDS = 15
 # Logon-triggered service task (registered; see the engine's Op-ScheduleSpec).
 # The "always-manual" note that stood here was stale.
 $TASK_NAME = "WorkstationOps-MolecubesTunnel"
+
+# -- Per-machine overrides ---------------------------------------------------
+# config\instance.local.ps1 (gitignored) may reset any value above for this
+# machine. It is read last, so it wins. See config\instance.example.ps1.
+$InstanceOverrides = Join-Path $OpsRoot "config\instance.local.ps1"
+if (Test-Path $InstanceOverrides) { . $InstanceOverrides }

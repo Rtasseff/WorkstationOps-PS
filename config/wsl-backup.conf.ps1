@@ -32,3 +32,9 @@ $TASK_TIME          = "14:00"
 # On a manual run, GPU utilization at or above this means typing the distro name is
 # required to stop WSL, rather than just answering y
 $GPU_BUSY_PERCENT   = 30
+
+# -- Per-machine overrides ---------------------------------------------------
+# config\instance.local.ps1 (gitignored) may reset any value above for this
+# machine. It is read last, so it wins. See config\instance.example.ps1.
+$InstanceOverrides = Join-Path $OpsRoot "config\instance.local.ps1"
+if (Test-Path $InstanceOverrides) { . $InstanceOverrides }

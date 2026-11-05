@@ -13,6 +13,13 @@ captures non-obvious constraints.
 - Run from bash with:
   `powershell.exe -ExecutionPolicy Bypass -File ./ops.ps1 <cmd>`
 
+## Every machine has an instance file
+
+`config\instance.local.ps1` (gitignored; template `config\instance.example.ps1`) names the machine and lists
+the ops it may run (`ENABLED_OPS`). `ops.ps1` refuses everything but `help` without it, and `run` / `schedule`
+refuse an op not in the list. Never delete or rename that file on a live machine: every scheduled task there
+would fail at its next run. Removing an op from the list does not unschedule it; `.\ops unschedule <op>` does.
+
 ## Testing safely
 
 - **Never run `.\ops run wsl-backup` without `--dry-run`** during

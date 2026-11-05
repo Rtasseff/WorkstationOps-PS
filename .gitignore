@@ -15,3 +15,6 @@ desktop.ini
 
 # Claude
 .claude/
+
+# Per-machine instance config (see config/instance.example.ps1)
+config/*.local.ps1

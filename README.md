@@ -224,6 +224,28 @@ the OAData web app at `http://10.10.2.195:4082/`.
   oadata-web-forward`, delete `operations\oadata-web-forward.ps1` +
   `config\oadata-web-forward.conf.ps1`, and free port 4082 in the table above
 
+## Instance config: which machine is this?
+
+Since 2026-11-05 every machine needs `config\instance.local.ps1` (gitignored). It names the machine and
+lists the only operations it lists, runs or schedules. **Without it, `ops.ps1` does nothing but `help`**, so
+a fresh clone on a new machine can never schedule the whole set. Start from the tracked template:
+
+```powershell
+Copy-Item config\instance.example.ps1 config\instance.local.ps1
+notepad config\instance.local.ps1   # set INSTANCE_NAME and ENABLED_OPS
+.\ops status --brief                # the header shows the instance name
+```
+
+- `run` and `schedule` refuse an op that isn't in `ENABLED_OPS`; `status`, `verify` and `unschedule` without a
+  name cover only the enabled ops. `unschedule <op>` works on any op, because decommissioning needs it.
+- **Removing an op from `ENABLED_OPS` does not remove its scheduled task.** Run `.\ops unschedule <op>` first.
+- The file is read again at the end of each machine-specific config (`finder-refresh`, `gjesus3-relink`,
+  `molecubes-tunnel`, `wsl-backup`), so it can override any path there for this machine, e.g. `$GJESUS3_REPO`,
+  `$PYTHON` or `$WORKSTATION_IP`. Nothing machine-specific needs editing in a tracked file.
+- Why: gjesus3's jobs move to a second machine (Box A) while this workstation keeps the backups and the
+  image-server forwards. The same repo serves both; only the list differs. A job must never be scheduled on
+  both machines: schedule it on the new one, verify, then unschedule it on the old one.
+
 ## Quick start
 
 ```powershell

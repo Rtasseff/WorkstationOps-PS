@@ -36,3 +36,9 @@ $LOG_RETENTION_DAYS = 90
 
 # Task Scheduler job name.
 $TASK_NAME          = "WorkstationOps-finder-refresh"
+
+# -- Per-machine overrides ---------------------------------------------------
+# config\instance.local.ps1 (gitignored) may reset any value above for this
+# machine. It is read last, so it wins. See config\instance.example.ps1.
+$InstanceOverrides = Join-Path $OpsRoot "config\instance.local.ps1"
+if (Test-Path $InstanceOverrides) { . $InstanceOverrides }
