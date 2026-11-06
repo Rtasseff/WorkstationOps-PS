@@ -2,12 +2,15 @@
 # Dot-sourced by ops.ps1. Exposes Op-Run / Op-Status / Op-Verify / Op-ScheduleSpec.
 #
 # What a run does, in the memory folder (a git working tree, see the conf):
+#   0. scan every changed or new *.md for secrets; a hit stops the run before
+#      anything is staged;
 #   1. commit every changed *.md (other sessions write the folder all day);
-#   2. pull --rebase from the repo (the other machine's notes);
+#   2. bring in the other machine's notes: fast-forward, or a rebase ONLY when the
+#      two machines changed different files (that cannot conflict). If both changed
+#      the same note, nothing is touched and the run is flagged for a person, so
+#      conflict markers never land in a note;
 #   3. push.
-# It never resets, checks out over, or deletes anything. A pull that conflicts is
-# aborted (git rebase --abort puts the folder back as it was), flagged, and left
-# for a person: two sessions edited the same note on two machines.
+# It never resets, force-checks-out, or deletes anything.
 
 $OpName        = "memory-sync"
 $OpLabel       = "Claude Memory Sync"
@@ -51,16 +54,45 @@ function Invoke-Git {
     # Run git in the memory folder. Returns @{ Exit; Output }.
     # ops.ps1 sets Stop, and under Stop PS 5.1 aborts on a native command's first
     # stderr line -- and git writes ordinary progress to stderr. So: Continue here.
-    param([Parameter(ValueFromRemainingArguments)][string[]]$GitArgs)
+    # Deliberately NO param block: an advanced function would read git's own flags
+    # (-o, -q, -m) as PowerShell parameters. A plain function passes $args through.
+    $gitArgs = $args
     $saved = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     try {
-        $out = & $GIT -C $MEMORY_DIR @GitArgs 2>&1 | ForEach-Object { "$_" }
+        $out = & $GIT -C $MEMORY_DIR @gitArgs 2>&1 | ForEach-Object { "$_" }
         $code = $LASTEXITCODE
     } finally {
         $ErrorActionPreference = $saved
     }
     return @{ Exit = $code; Output = @($out) }
+}
+
+$SECRET_PATTERNS = @(
+    @{ Kind = "private key";        Rx = '-----BEGIN [A-Z ]*PRIVATE KEY-----' },
+    @{ Kind = "GitHub token";       Rx = 'gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{20,}' },
+    @{ Kind = "AWS key";            Rx = 'AKIA[0-9A-Z]{16}' },
+    @{ Kind = "API key (sk-)";      Rx = 'sk-[A-Za-z0-9_\-]{20,}' },
+    @{ Kind = "Slack token";        Rx = 'xox[abprs]-[A-Za-z0-9\-]{10,}' },
+    @{ Kind = "password value";     Rx = '(?i)\bpass(word|wd)?\s*[:=]\s*[^\s<`(]{4,}' },
+    @{ Kind = "token/secret value"; Rx = '(?i)\b(token|secret|api[_-]?key)\s*[:=]\s*[A-Za-z0-9/+_\-]{12,}' },
+    @{ Kind = "credentials in URL"; Rx = '[a-z][a-z0-9+.\-]*://[^/\s:@]+:[^/\s@]+@' }
+)
+
+function Find-SecretsInChangedNotes {
+    # Changed (modified) and new (untracked) *.md in the memory folder, scanned
+    # against $SECRET_PATTERNS. Returns @(@{File; Kind}). Deleted files are skipped.
+    $files = @((Invoke-Git ls-files -m -o --exclude-standard -- "*.md").Output | Where-Object { $_ } | Sort-Object -Unique)
+    $hits = @()
+    foreach ($rel in $files) {
+        $path = Join-Path $MEMORY_DIR $rel
+        if (-not (Test-Path -LiteralPath $path)) { continue }
+        $text = [System.IO.File]::ReadAllText($path)
+        foreach ($p in $SECRET_PATTERNS) {
+            if ($text -match $p.Rx) { $hits += @{ File = $rel; Kind = $p.Kind } }
+        }
+    }
+    return ,$hits
 }
 
 function Test-MemoryRepo {
@@ -225,8 +257,9 @@ function Op-Run {
     if ($DryRun) {
         $st = Invoke-Git status --porcelain -- "*.md"
         $n = @($st.Output | Where-Object { $_ }).Count
-        Write-Log -Level INFO -Message "[DRY RUN] $n changed note(s) would be committed, then: pull --rebase origin $BRANCH; push origin $BRANCH."
+        Write-Log -Level INFO -Message "[DRY RUN] $n changed note(s) would be scanned for secrets and committed, then: fetch; fast-forward or a no-overlap rebase; push origin $BRANCH."
         foreach ($line in ($st.Output | Where-Object { $_ })) { Write-Log -Level INFO -Message "[DRY RUN]   $line" }
+        foreach ($h in (Find-SecretsInChangedNotes)) { Write-Log -Level WARN -Message "[DRY RUN] possible secret ($($h.Kind)) in $($h.File): a real run would stop here" }
         Invoke-LogRotation -RetentionDays $LOG_RETENTION_DAYS
         return
     }
@@ -239,9 +272,20 @@ function Op-Run {
 
     $failure = $null
     try {
+        # 0. Secret scan of every changed or new note BEFORE anything is staged. A hit
+        #    stops the run: nothing is staged, committed or pushed. Only the file and
+        #    the kind of match are logged, never the matched text.
+        $hits = Find-SecretsInChangedNotes
+        if ($hits.Count -gt 0) {
+            $failure = "secret-suspected"
+            foreach ($h in $hits) { Write-Log -Level ERROR -Message "Possible secret ($($h.Kind)) in $($h.File); nothing staged. Remove it, then re-run." }
+        }
+
         # 1. Commit what changed.
-        $add = Invoke-Git add -A -- "*.md"
-        if ($add.Exit -ne 0) { $failure = "add-failed"; $add.Output | ForEach-Object { Write-Log -Level ERROR -Message "git: $_" } }
+        if (-not $failure) {
+            $add = Invoke-Git add -A -- "*.md"
+            if ($add.Exit -ne 0) { $failure = "add-failed"; $add.Output | ForEach-Object { Write-Log -Level ERROR -Message "git: $_" } }
+        }
 
         if (-not $failure) {
             $diff = Invoke-Git diff --cached --quiet
@@ -261,15 +305,44 @@ function Op-Run {
             }
         }
 
-        # 2. Pull the other machine's notes. On a conflict, abort: the folder goes
-        #    back exactly as it was, and a person resolves it.
+        # 2. Bring in the other machine's notes WITHOUT ever writing conflict markers
+        #    into a note (every session reads these files):
+        #    - nothing new upstream: nothing to do;
+        #    - only upstream moved: fast-forward (--ff-only);
+        #    - both moved: rebase ONLY when the two sides changed different files,
+        #      which cannot conflict; if any file was changed on both sides, skip,
+        #      leave the folder untouched, and flag it for a person.
         if (-not $failure) {
-            $pull = Invoke-Git pull --rebase origin $BRANCH
-            $pull.Output | ForEach-Object { Write-Log -Level INFO -Message "pull: $_" }
-            if ($pull.Exit -ne 0) {
-                $failure = "pull-conflict"
-                $abort = Invoke-Git rebase --abort
-                Write-Log -Level ERROR -Message "Pull failed; rebase aborted (exit $($abort.Exit)). The folder is as it was. Resolve by hand."
+            $fetch = Invoke-Git fetch -q origin $BRANCH
+            if ($fetch.Exit -ne 0) { $failure = "fetch-failed"; $fetch.Output | ForEach-Object { Write-Log -Level ERROR -Message "git: $_" } }
+        }
+        if (-not $failure) {
+            $local  = (Invoke-Git rev-parse HEAD).Output[0]
+            $remote = (Invoke-Git rev-parse "origin/$BRANCH").Output[0]
+            $base   = (Invoke-Git merge-base HEAD "origin/$BRANCH").Output[0]
+            if ($remote -eq $base) {
+                Write-Log -Level INFO -Message "Nothing new upstream."
+            } elseif ($local -eq $base) {
+                $ff = Invoke-Git merge --ff-only -q "origin/$BRANCH"
+                if ($ff.Exit -ne 0) { $failure = "ff-failed"; $ff.Output | ForEach-Object { Write-Log -Level ERROR -Message "git: $_" } }
+                else { Write-Log -Level INFO -Message "Fast-forwarded to upstream." }
+            } else {
+                $mine   = @((Invoke-Git diff --name-only $base $local).Output | Where-Object { $_ })
+                $theirs = @((Invoke-Git diff --name-only $base $remote).Output | Where-Object { $_ })
+                $both   = @($mine | Where-Object { $theirs -contains $_ })
+                if ($both.Count -gt 0) {
+                    $failure = "diverged-same-notes"
+                    Write-Log -Level ERROR -Message "Both machines changed: $($both -join ', '). Left untouched; merge those notes by hand, then re-run."
+                } else {
+                    $rb = Invoke-Git rebase -q "origin/$BRANCH"
+                    if ($rb.Exit -ne 0) {
+                        $failure = "rebase-failed"
+                        $abort = Invoke-Git rebase --abort
+                        Write-Log -Level ERROR -Message "Rebase of disjoint changes failed (unexpected); aborted (exit $($abort.Exit)), folder as it was."
+                    } else {
+                        Write-Log -Level INFO -Message "Rebased $($mine.Count) local note(s) onto $($theirs.Count) upstream note(s); no overlap."
+                    }
+                }
             }
         }
 
