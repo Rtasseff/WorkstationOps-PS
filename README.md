@@ -15,6 +15,7 @@ aggregate.
 | `vps-backup` | Daily @ 03:00 | Pull latest ReDIB DB + files backups from the VPS to `X:\backup\ReDIB-Portal` |
 | `finder-refresh` | Daily @ 03:00 | Rebuild the gjesus3 researcher Finder index (global + per-project `index.html`) from the registry |
 | `gjesus3-relink` | Daily @ 02:30 | Create the gjesus3 project hard links a Mac sync could not make, from `registries\pending_links.csv` |
+| `memory-sync` | Daily @ 22:30 | Commit, pull and push the Claude project memory folder (a git working tree) to its private GitHub repo |
 | `molecubes-tunnel` | At logon (long-running service) | Windows-side landing pad for the reverse SSH tunnel from the Molecubes PET/CT acquisition box |
 | `omero-web-forward` | At logon (long-running service) | Forward Windows port 4080 to OMERO.web inside WSL for the gjesus3 researcher pilot |
 
@@ -64,6 +65,15 @@ The NI acquisition Mac cannot make hard links over SMB, so a sync registers each
 - **Status** shows open rows and the oldest `queued_datetime`, and reports STALE if an open row is older than 30h
 
 **Checking a link by hand:** use `os.path.samefile`. Through SMB a true hard link reports a link count of 1, so a count check makes it look like a copy.
+
+### memory-sync
+
+The Claude project memory for gjesus3 lives in a folder outside OneDrive and outside any repo. Since 2026-11-06 that folder is its own git working tree, pushed to the PRIVATE repo `Rtasseff/gjesus3-memory`. This op keeps it backed up and shared between machines.
+
+- **A run:** commits every changed `*.md` (sessions write the folder all day), then `pull --rebase` (the other machine's notes), then `push`. It never resets, force-checks-out or deletes anything.
+- **A conflict** (two machines edited the same note): the rebase is aborted, so the folder goes back exactly as it was, and the pending flag and a notification ask a person to resolve it.
+- **Per machine:** each machine's memory folder is named after where its Claude sessions run, so it differs per machine. Set `$MEMORY_DIR` (and `$GIT`, a full path) in `config\instance.local.ps1`.
+- **Status** shows uncommitted notes, ahead/behind, and STALE after 30h without a successful sync.
 
 ### molecubes-tunnel
 
