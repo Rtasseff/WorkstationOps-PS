@@ -16,6 +16,7 @@ captures non-obvious constraints.
 ## Which machine am I on? Dev or deploy
 
 Check before any change: `hostname`, or `$env:COMPUTERNAME`, and the instance name `.\ops status --brief` prints.
+Compare hostnames ignoring case (`hostname` prints them in lower case).
 
 | Hostname | Instance name | Role |
 |---|---|---|
