@@ -250,8 +250,9 @@ notepad config\instance.local.ps1   # set INSTANCE_NAME and ENABLED_OPS
   name cover only the enabled ops. `unschedule <op>` works on any op, because decommissioning needs it.
 - **Removing an op from `ENABLED_OPS` does not remove its scheduled task.** Run `.\ops unschedule <op>` first.
 - The file is read again at the end of each machine-specific config (`finder-refresh`, `gjesus3-relink`,
-  `molecubes-tunnel`, `wsl-backup`), so it can override any path there for this machine, e.g. `$GJESUS3_REPO`,
-  `$PYTHON` or `$WORKSTATION_IP`. Nothing machine-specific needs editing in a tracked file.
+  `memory-sync`, `molecubes-tunnel`, `wsl-backup`), so it can override any path there for this machine, e.g.
+  `$GJESUS3_REPO`, `$PYTHON` or `$WORKSTATION_IP`. Nothing machine-specific needs editing in a tracked file.
+- **Which machine runs what, and a reference copy of each machine's file:** [`ref-configs\`](ref-configs/README.md).
 - Why: gjesus3's jobs move to a second machine (Box A) while this workstation keeps the backups and the
   image-server forwards. The same repo serves both; only the list differs. A job must never be scheduled on
   both machines: schedule it on the new one, verify, then unschedule it on the old one.
