@@ -13,6 +13,24 @@ captures non-obvious constraints.
 - Run from bash with:
   `powershell.exe -ExecutionPolicy Bypass -File ./ops.ps1 <cmd>`
 
+## Which machine am I on? Dev or deploy
+
+Check before any change: `hostname`, or `$env:COMPUTERNAME`, and the instance name `.\ops status --brief` prints.
+
+| Hostname | Instance name | Role |
+|---|---|---|
+| `BMG-RTASSEFF` | `dev-workstation` | **Dev**: code changes are made, committed and pushed here (`main` in the OneDrive live folder). |
+| `BMG-WKS-RYAN` | `bmg-wks-ryan` | **Box A, the deployment box**: runs the gjesus3 jobs. Update with `git pull --ff-only` only. |
+| anything else | | Stop and ask Ryan what role this machine has. |
+
+**On the deployment box** (Ryan, 2026-11-19: dev is where we develop and push, Box A is where we mostly pull):
+- never commit or push there, and never edit a tracked file there;
+- a fix found there is made on dev, pushed, then pulled;
+- the only local edit is `config\instance.local.ps1`. When it changes, its reference copy in `ref-configs\` is updated and
+  committed from dev, in the same go.
+
+Which machine runs which operation: [`ref-configs\README.md`](ref-configs/README.md).
+
 ## Every machine has an instance file
 
 `config\instance.local.ps1` (gitignored; template `config\instance.example.ps1`) names the machine and lists
