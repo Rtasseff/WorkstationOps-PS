@@ -435,6 +435,13 @@ Known and deliberately not fixed. Low priority -- recorded so it is not rediagno
   unverified here, so it is not something to try while the box has never exercised the
   tunnel.
 
+- **`finder-refresh` logs a stale "Global index published" time right after a run.** On Box A (2026-11-19 15:50 by
+  hand, and 2026-11-20 03:00 scheduled) the run's own `[OK] Global index published:` line showed the *previous* build's
+  time, while the NAS file was new: mtime 03:00:13, stamp "generated 02:00 UTC". `.\ops status finder-refresh`, read
+  later, shows the right time. Cause: the SMB client's file-information cache, read straight after the write.
+  Cosmetic, since the index itself is correct. A fix would read the build time from the page's own "generated" stamp, or
+  re-stat after a short pause.
+
 ## Adding a new operation
 
 Drop two files and the dispatcher picks it up automatically:
