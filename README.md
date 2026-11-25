@@ -442,6 +442,13 @@ Known and deliberately not fixed. Low priority -- recorded so it is not rediagno
   Cosmetic, since the index itself is correct. A fix would read the build time from the page's own "generated" stamp, or
   re-stat after a short pause.
 
+- **Retire `memory-sync` on both machines after the gjesus3 web app's walk-through** (Ryan, 2026-11-25). Once Box A
+  settles into production and dev into development, their memories no longer need to be shared. Steps, undo and reasons:
+  gjesus3's `tasks\BACKLOG.md`, "Retire the Claude memory sync on both machines". Until then, a `diverged-same-notes`
+  failure (both machines changed one note, usually `MEMORY.md`) is cleared by hand in the memory folder: if
+  `git merge-tree --write-tree HEAD origin/main` exits 0, run `git rebase origin/main` there, then `.\ops run memory-sync`.
+  If it reports a conflict, merge that note by hand.
+
 ## Adding a new operation
 
 Drop two files and the dispatcher picks it up automatically:
